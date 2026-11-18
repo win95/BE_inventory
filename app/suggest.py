@@ -40,10 +40,19 @@ def tokens(text: str) -> set[str]:
 
 
 def suggest(
-    prompt: str, conn: sqlite3.Connection, page: int, page_size: int, locale: str = "vi"
+    prompt: str,
+    conn: sqlite3.Connection,
+    page: int,
+    page_size: int,
+    locale: str = "vi",
+    log_prompt: bool = True,
 ) -> dict:
-    conn.execute("INSERT INTO prompt_logs (prompt) VALUES (?)", (prompt,))
-    conn.commit()
+    # Ghi prompt vào prompt_logs để theo dõi — trừ lần refresh số liệu realtime
+    # của Frontend (log_prompt=False), nếu không mỗi lần refresh 30s lại ghi
+    # một dòng trùng và nhật ký mất ý nghĩa.
+    if log_prompt:
+        conn.execute("INSERT INTO prompt_logs (prompt) VALUES (?)", (prompt,))
+        conn.commit()
     prompt_tokens = tokens(prompt)
 
     rows = conn.execute(

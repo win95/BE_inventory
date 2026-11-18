@@ -16,7 +16,7 @@ import json
 import logging
 import sqlite3
 
-from . import config, db
+from . import config, db, growth
 
 logger = logging.getLogger("awing.realtime")
 
@@ -72,6 +72,20 @@ class Broadcaster:
     async def _loop(self) -> None:
         while self._running:
             try:
+                # Tăng trưởng trước, snapshot sau — kỳ broadcast nào cũng mang
+                # số vừa tăng. Tăng trưởng lỗi thì chỉ ghi log, vẫn broadcast
+                # số cũ (kỳ sau tự bù).
+                if config.GROWTH_ENABLED:
+                    try:
+                        conn = db.connect()
+                        try:
+                            grown = growth.apply_growth(conn)
+                        finally:
+                            conn.close()
+                        if grown:
+                            logger.info("Realtime loop: tăng trưởng %s", grown)
+                    except Exception:  # noqa: BLE001 - không chặn broadcast
+                        logger.exception("Realtime loop: tăng trưởng lỗi kỳ này")
                 self.broadcast_stats()
             except Exception:  # noqa: BLE001 - kỳ lỗi thì bỏ qua, kỳ sau bù
                 logger.exception("Realtime loop: không đẩy được snapshot kỳ này")

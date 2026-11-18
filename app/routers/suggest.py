@@ -14,5 +14,5 @@ router = APIRouter()
 def post_suggest(payload: SuggestRequest, conn: sqlite3.Connection = Depends(db.get_conn)):
     return suggest_logic.suggest(
         payload.prompt, conn, payload.page, payload.pageSize,
-        locale_names.parse_locale(payload.locale),
+        locale_names.parse_locale(payload.locale), payload.logPrompt,
     )

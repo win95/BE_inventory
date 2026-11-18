@@ -117,6 +117,9 @@ class SuggestRequest(BaseModel):
     pageSize: int = Field(default=50, ge=1, le=200)
     # Locale hiển thị tên địa danh trong kết quả (vi/en, mặc định vi).
     locale: str = "vi"
+    # Refresh số liệu realtime (Frontend gọi lại mỗi chu kỳ SSE) thì không ghi
+    # prompt vào prompt_logs — mặc định True (lần gợi ý đầu tiên của người dùng).
+    logPrompt: bool = True
 
 
 class SuggestResponse(BaseModel):

@@ -82,3 +82,15 @@ các file CSV rồi chạy lại, hoặc thao tác trực tiếp bằng `sqlite3
 Vòng lặp nền trong tiến trình FastAPI: mỗi 30 giây đọc SQLite, dựng full
 snapshot số liệu rồi đẩy qua SSE cho mọi client đang kết nối. Đẩy mỗi kỳ kể
 cả khi dữ liệu chưa đổi; kỳ lỗi thì kỳ sau tự bù toàn bộ.
+
+Tăng trưởng số liệu mẫu (tran 18/11/2026, `app/growth.py`): trước khi đẩy
+snapshot mỗi kỳ, backend cộng dồn số liệu vào SQLite — Lượt kết nối
+(+100.000/kỳ mặc định, đổi bằng `GROWTH_CONNECTIONS_PER_CYCLE`), reach,
+engagements, impressions/ngày và monthly theo cùng tỉ lệ % so với tổng hiện
+tại, chia theo tỉ trọng từng thành phố. Số được lưu lại nên restart backend
+vẫn tiếp tục tăng từ mức đã đạt; cột NULL giữ NULL (Vũng Tàu/Huế không tự
+sinh số), DB rỗng thì không làm gì. Tắt bằng `GROWTH_ENABLED=false` khi có
+nguồn số liệu thật. Frontend nhận số mới qua SSE: dải số liệu (home) cập
+nhật trực tiếp từ snapshot; /advertisers và /locations gọi lại API khi có
+snapshot mới (lần gọi lại gửi `logPrompt: false` nên không ghi trùng vào
+`prompt_logs`).
