@@ -58,6 +58,8 @@ class IndustryStat(BaseModel):
 
 class CityMonthlyStat(BaseModel):
     city: str
+    # Nhãn ngắn cho trục X biểu đồ (vd. HCM), theo locale của request.
+    short: Optional[str] = None
     # Trung bình tháng (triệu) cho biểu đồ Reach vs Engagement by City.
     monthlyReach: Optional[float] = None
     monthlyEngagements: Optional[float] = None
@@ -104,6 +106,8 @@ class SuggestRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=1000)
     page: int = Field(default=1, ge=1)
     pageSize: int = Field(default=50, ge=1, le=200)
+    # Locale hiển thị tên địa danh trong kết quả (vi/en, mặc định vi).
+    locale: str = "vi"
 
 
 class SuggestResponse(BaseModel):

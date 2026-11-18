@@ -10,7 +10,7 @@ import sqlite3
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
-from .. import db
+from .. import db, locale_names
 from ..realtime import broadcaster
 from ..schemas import (
     CityMonthlyStat,
@@ -41,9 +41,14 @@ def get_network_stats(conn: sqlite3.Connection = Depends(db.get_conn)):
 
 
 @router.get("/api/coverage", response_model=CoverageResponse)
-def get_coverage(conn: sqlite3.Connection = Depends(db.get_conn)):
+def get_coverage(locale: str = "vi", conn: sqlite3.Connection = Depends(db.get_conn)):
+    loc = locale_names.parse_locale(locale)
     provinces = [
-        ProvinceCoverage(province=r["province"], level=int(r["level"]), venues=r["venues"])
+        ProvinceCoverage(
+            province=locale_names.province_name(r["province"], loc),
+            level=int(r["level"]),
+            venues=r["venues"],
+        )
         for r in conn.execute("SELECT province, level, venues FROM provinces ORDER BY province").fetchall()
     ]
     venue_types = [
@@ -95,7 +100,8 @@ def get_coverage(conn: sqlite3.Connection = Depends(db.get_conn)):
         ).fetchall()
         cities = [
             CityMonthlyStat(
-                city=r["city"],
+                city=locale_names.city_name(r["city"], loc),
+                short=locale_names.city_short(r["city"], loc),
                 monthlyReach=r["monthly_reach"],
                 monthlyEngagements=r["monthly_engagements"],
             )

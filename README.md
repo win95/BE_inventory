@@ -36,8 +36,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 | Method | Endpoint | Mô tả |
 |---|---|---|
 | `GET` | `/api/network-stats` | Số liệu mạng lưới (F03). |
-| `GET` | `/api/coverage` | Phủ sóng theo tỉnh, loại venue, thư mục địa điểm, số liệu ngành (F04, F17). |
-| `POST` | `/api/suggest` | Gợi ý chiến dịch theo prompt, body `{ prompt, page?, pageSize? }` (F02, F06). |
+| `GET` | `/api/coverage` | Phủ sóng theo tỉnh, loại venue, thư mục địa điểm, số liệu ngành (F04, F17). Hỗ trợ `?locale=vi|en` (mặc định vi): tên tỉnh/thành trả theo locale, `cities[].short` là nhãn ngắn cho trục X biểu đồ. |
+| `POST` | `/api/suggest` | Gợi ý chiến dịch theo prompt, body `{ prompt, page?, pageSize?, locale? }` (F02, F06). `locale` vi/en (mặc định vi) dịch tên thành phố trong kết quả; việc khớp prompt vẫn dùng tên gốc trong DB nên prompt tiếng Anh vẫn khớp. |
 | `POST` | `/api/leads` | Lead form (F12). |
 | `POST` | `/api/contact` | Form Contact Us (F15). |
 | `GET` | `/api/events/stats` | SSE: full snapshot số liệu mỗi 30 giây (realtime, trễ tối đa 1 phút). |

@@ -12,6 +12,7 @@ import re
 import sqlite3
 import unicodedata
 
+from . import locale_names
 from .schemas import (
     AdFormat,
     CampaignOverview,
@@ -38,7 +39,9 @@ def tokens(text: str) -> set[str]:
     return {w for w in words if w not in _STOPWORDS and len(w) > 1}
 
 
-def suggest(prompt: str, conn: sqlite3.Connection, page: int, page_size: int) -> dict:
+def suggest(
+    prompt: str, conn: sqlite3.Connection, page: int, page_size: int, locale: str = "vi"
+) -> dict:
     conn.execute("INSERT INTO prompt_logs (prompt) VALUES (?)", (prompt,))
     conn.commit()
     prompt_tokens = tokens(prompt)
@@ -88,7 +91,7 @@ def suggest(prompt: str, conn: sqlite3.Connection, page: int, page_size: int) ->
     cities = (
         [
             SuggestCity(
-                name=row["city"],
+                name=locale_names.city_name(row["city"], locale),
                 reach=row["reach"],
                 engagements=row["engagements"],
                 impressionsPerDay=row["impressions_per_day"],
@@ -117,7 +120,10 @@ def suggest(prompt: str, conn: sqlite3.Connection, page: int, page_size: int) ->
         "overview": overview,
         "locations": [
             SuggestedLocation(
-                name=loc["name"], area=loc["area"], city=loc["city"], reach=loc["reach"]
+                name=loc["name"],
+                area=loc["area"],
+                city=locale_names.city_name(loc["city"], locale),
+                reach=loc["reach"],
             )
             for loc in page_locations
         ],
