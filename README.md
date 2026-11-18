@@ -12,7 +12,8 @@ Compose. Repo này là `win95/BE_inventory` — repo riêng của backend; Front
 - Case study và nội dung home **không** nằm trong SQLite — đã chuyển sang
   Strapi (Postgres). Frontend lấy chúng qua Strapi REST.
 - Không mock, không seed dữ liệu mẫu vào code. Database rỗng thì API trả
-  rỗng, giao diện hiện trạng thái rỗng.
+  rỗng, giao diện hiện trạng thái rỗng. Dữ liệu mẫu chỉ nằm trong các file
+  CSV ở `scripts/data/` (xem dưới) để nhập thử — không nằm trong code.
 
 ## Chạy
 
@@ -50,14 +51,22 @@ Case study lấy qua Strapi REST, không qua backend này.
 
 ## Nhập dữ liệu thử nghiệm
 
-Không có dữ liệu mẫu trong code. Điền dữ liệu vào các file CSV trong
-`scripts/data/` (hiện chỉ có dòng header), rồi chạy:
+`scripts/data/` đã có sẵn **dữ liệu mẫu** (47 dòng, 8 file): số liệu lấy
+theo trang mẫu AWING trên Figma — 25,4 triệu lượt kết nối, 63 tỉnh, 195
+chuỗi, 10.953 địa điểm; 10 tỉnh, 6 loại venue, 10 địa điểm, 3 định dạng
+quảng cáo, 4 thành phố, 8 mục thư mục, 5 ngành. Các số liệu nhất quán với
+nhau: tổng venues của `provinces` và `venue_types` đều bằng 10.953; tổng
+3 thành phố Hà Nội + TP.HCM + Đà Nẵng đúng 22,8 triệu reach / 15,7 triệu
+engagement / 4,7 triệu impressions/ngày theo trang mẫu.
+
+Nhập vào SQLite:
 
 ```bash
 python scripts/import_csv.py
 ```
 
-Chạy lại nhiều lần đều an toàn (ghi đè theo khóa chính). Hoặc thao tác trực
+Chạy lại nhiều lần đều an toàn (ghi đè theo khóa chính). Muốn thay bằng dữ
+liệu thật thì sửa trực tiếp các file CSV rồi chạy lại, hoặc thao tác trực
 tiếp bằng `sqlite3 awing.db`.
 
 ## Realtime
