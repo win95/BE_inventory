@@ -28,7 +28,8 @@ class NetworkStats(BaseModel):
 
 class ProvinceCoverage(BaseModel):
     province: str
-    level: str
+    # Mức tương tác 1-5 (1 Emerging, 2 Active, 3 Strong, 4 High, 5 Flagship).
+    level: int
     venues: int
 
 
@@ -40,13 +41,26 @@ class VenueTypeCount(BaseModel):
 class LocationDirectoryEntry(BaseModel):
     name: str
     category: str
-    venues: int
+    # Ghi chú dưới tên chuỗi, vd. "63 provinces", "24 cities", "Ha Noi".
+    subtitle: str = ""
+    locations: int = 0
+    # Reach tính bằng triệu (vd. 4.2 = 4.2M).
+    reach: Optional[float] = None
 
 
 class IndustryStat(BaseModel):
     industry: str
     engagement: Optional[float] = None
     reach: Optional[int] = None
+    # Tổng impressions (nghìn) cho biểu đồ Engagement by Industry.
+    impressions: Optional[int] = None
+
+
+class CityMonthlyStat(BaseModel):
+    city: str
+    # Trung bình tháng (triệu) cho biểu đồ Reach vs Engagement by City.
+    monthlyReach: Optional[float] = None
+    monthlyEngagements: Optional[float] = None
 
 
 class CoverageResponse(BaseModel):
@@ -54,6 +68,7 @@ class CoverageResponse(BaseModel):
     venueTypes: list[VenueTypeCount] = []
     directory: Optional[list[LocationDirectoryEntry]] = None
     industryStats: Optional[list[IndustryStat]] = None
+    cities: Optional[list[CityMonthlyStat]] = None
 
 
 class CampaignOverview(BaseModel):

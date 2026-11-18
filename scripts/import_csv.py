@@ -1,11 +1,13 @@
-"""Nhập dữ liệu nghiệp vụ vào SQLite từ file CSV (không có dữ liệu mẫu).
+"""Nhập dữ liệu thử nghiệm vào SQLite từ file CSV trong scripts/data/.
 
 Cách dùng:
     python scripts/import_csv.py [--db awing.db] [ten-bang ...]
 
-Đọc các file trong scripts/data/<ten-bang>.csv (chỉ có dòng header mẫu, chưa
-có dữ liệu — tự điền dữ liệu thử nghiệm vào rồi chạy). Mỗi lần chạy chèn
-thêm hoặc ghi đè theo khóa chính của bảng. Chạy lại nhiều lần đều an toàn.
+Số liệu trong các CSV lấy theo trang mẫu AWING trên Figma, nhất quán với
+nhau (vd. tổng venues của provinces = 10.953). Mặc định mỗi lần chạy chèn
+thêm hoặc ghi đè theo khóa chính của bảng; các bảng trong REPLACE_TABLES
+được định nghĩa trọn vẹn trong CSV nên nhập là thay toàn bộ (xóa rồi nhập
+lại) để dòng cũ đổi tên/khóa không thành rác. Chạy lại nhiều lần đều an toàn.
 """
 
 import csv
@@ -23,10 +25,14 @@ TABLES = {
     "venue_types": ("type,count", "type"),
     "locations": ("name,area,city,reach", "name,city"),
     "ad_formats": ("name,metric_label,metric_value,duration_seconds", "name"),
-    "city_stats": ("city,reach,engagements,impressions_per_day", "city"),
-    "directory": ("name,category,venues", "name"),
-    "industry_stats": ("industry,engagement,reach", "industry"),
+    "city_stats": ("city,reach,engagements,impressions_per_day,monthly_reach,monthly_engagements", "city"),
+    "directory": ("name,category,subtitle,locations,reach", "name"),
+    "industry_stats": ("industry,engagement,reach,impressions", "industry"),
 }
+
+# Các bảng này được định nghĩa trọn vẹn trong CSV — nhập là thay toàn bộ
+# (xóa rồi nhập lại) để dòng cũ đổi tên/khóa không còn sót lại thành rác.
+REPLACE_TABLES = {"provinces", "directory", "industry_stats"}
 
 
 def import_table(conn: sqlite3.Connection, data_dir: Path, table: str) -> int:
@@ -43,6 +49,8 @@ def import_table(conn: sqlite3.Connection, data_dir: Path, table: str) -> int:
         return 0
     cols = [c.strip() for c in columns.split(",")]
     placeholders = ", ".join("?" for _ in cols)
+    if table in REPLACE_TABLES:
+        conn.execute(f"DELETE FROM {table}")
     sql = f"INSERT OR REPLACE INTO {table} ({columns}) VALUES ({placeholders})"
     conn.executemany(sql, [[row.get(c, "") or None for c in cols] for row in rows])
     conn.commit()

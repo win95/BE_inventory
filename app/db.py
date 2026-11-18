@@ -28,8 +28,12 @@ CREATE TABLE IF NOT EXISTS network_stats (
 );
 
 CREATE TABLE IF NOT EXISTS provinces (
+    -- Mức tương tác 1-5 theo đúng thang của trang mẫu Figma (bản đồ nhiệt
+    -- Location Network): 1 Emerging, 2 Active, 3 Strong, 4 High, 5 Flagship.
+    -- Tên tỉnh/thành dùng đúng nhãn trên bản đồ Figma (tiếng Anh, vd. Ha Noi,
+    -- Ho Chi Minh) để Frontend khớp đúng từng ô trên lưới 10x15.
     province TEXT PRIMARY KEY,
-    level TEXT NOT NULL CHECK (level IN ('low', 'medium', 'high')),
+    level INTEGER NOT NULL CHECK (level BETWEEN 1 AND 5),
     venues INTEGER NOT NULL DEFAULT 0
 );
 
@@ -59,19 +63,29 @@ CREATE TABLE IF NOT EXISTS city_stats (
     city TEXT PRIMARY KEY,
     reach INTEGER,
     engagements INTEGER,
-    impressions_per_day INTEGER
+    impressions_per_day INTEGER,
+    -- Trung bình tháng (triệu) cho biểu đồ Reach vs Engagement ở Location
+    -- Network. Tên thành phố giữ tiếng Việt để khớp prompt gợi ý.
+    monthly_reach REAL,
+    monthly_engagements REAL
 );
 
 CREATE TABLE IF NOT EXISTS directory (
+    -- Thư mục Location Network theo trang mẫu Figma: chuỗi/hệ thống, không
+    -- phải từng điểm lẻ. reach tính bằng triệu.
     name TEXT PRIMARY KEY,
     category TEXT NOT NULL,
-    venues INTEGER NOT NULL DEFAULT 0
+    subtitle TEXT NOT NULL DEFAULT '',
+    locations INTEGER NOT NULL DEFAULT 0,
+    reach REAL
 );
 
 CREATE TABLE IF NOT EXISTS industry_stats (
     industry TEXT PRIMARY KEY,
     engagement REAL,
-    reach INTEGER
+    reach INTEGER,
+    -- Tổng impressions (nghìn) cho biểu đồ Engagement by Industry.
+    impressions INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS leads (
@@ -129,10 +143,70 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+def _table_sql(conn: sqlite3.Connection, table: str) -> str:
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
+    ).fetchone()
+    return row[0] if row else ""
+
+
+def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Nâng cấp database đã có từ schema cũ lên schema mới (idempotent).
+
+    Chỉ chạy khi bảng đã tồn tại với hình dạng cũ — database mới tạo thẳng
+    schema mới nên các bước này không làm gì.
+    """
+    # provinces: level 'low'/'medium'/'high' (TEXT) -> 1-5 (INTEGER).
+    if "'low'" in _table_sql(conn, "provinces"):
+        conn.executescript(
+            """
+            CREATE TABLE provinces_new (
+                province TEXT PRIMARY KEY,
+                level INTEGER NOT NULL CHECK (level BETWEEN 1 AND 5),
+                venues INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO provinces_new (province, level, venues)
+            SELECT province,
+                CASE level WHEN 'low' THEN 1 WHEN 'medium' THEN 3
+                          WHEN 'high' THEN 5 ELSE 3 END,
+                venues FROM provinces;
+            DROP TABLE provinces;
+            ALTER TABLE provinces_new RENAME TO provinces;
+            """
+        )
+    # directory: từng điểm lẻ (name, category, venues) -> chuỗi/hệ thống
+    # (name, category, subtitle, locations, reach). Dữ liệu cũ không map
+    # được sang hình dạng mới nên bảng dựng lại rỗng — nhập lại từ CSV.
+    if "subtitle" not in _columns(conn, "directory"):
+        conn.executescript(
+            """
+            DROP TABLE directory;
+            CREATE TABLE directory (
+                name TEXT PRIMARY KEY,
+                category TEXT NOT NULL,
+                subtitle TEXT NOT NULL DEFAULT '',
+                locations INTEGER NOT NULL DEFAULT 0,
+                reach REAL
+            );
+            """
+        )
+    # Thêm cột mới vào hai bảng còn lại (ADD COLUMN an toàn, không mất dữ liệu).
+    if "impressions" not in _columns(conn, "industry_stats"):
+        conn.execute("ALTER TABLE industry_stats ADD COLUMN impressions INTEGER")
+    for col in ("monthly_reach", "monthly_engagements"):
+        if col not in _columns(conn, "city_stats"):
+            conn.execute(f"ALTER TABLE city_stats ADD COLUMN {col} REAL")
+
+
 def init_db() -> None:
     conn = connect()
     try:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         conn.commit()
     finally:
         conn.close()

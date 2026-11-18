@@ -78,8 +78,12 @@ def suggest(prompt: str, conn: sqlite3.Connection, page: int, page_size: int) ->
         ).fetchall()
     ]
 
+    # Chỉ thành phố có tổng reach mới làm chip gợi ý — các dòng chỉ có số
+    # liệu tháng (monthly_reach) phục vụ biểu đồ Location Network, không
+    # đưa vào gợi ý.
     city_rows = conn.execute(
-        "SELECT city, reach, engagements, impressions_per_day FROM city_stats"
+        "SELECT city, reach, engagements, impressions_per_day FROM city_stats "
+        "WHERE reach IS NOT NULL"
     ).fetchall()
     cities = (
         [

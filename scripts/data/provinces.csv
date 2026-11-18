@@ -1,11 +1,33 @@
 province,level,venues
-Hà Nội,high,3200
-TP. Hồ Chí Minh,high,4100
-Đà Nẵng,high,1100
-Cần Thơ,medium,850
-Hải Phòng,medium,650
-Bình Dương,medium,400
-Đồng Nai,medium,300
-Khánh Hòa,low,200
-Nghệ An,low,100
-Huế,low,53
+Ha Noi,5,3200
+Ho Chi Minh,5,4100
+Da Nang,4,1100
+Hai Phong,4,650
+Can Tho,3,850
+Bien Hoa,3,300
+Binh Duong,3,400
+Hue,3,53
+Thai Nguyen,2,0
+Quang Ninh,2,0
+Thanh Hoa,2,0
+Bac Ninh,2,0
+Nghe An,2,100
+Quang Nam,2,0
+Lam Dong,2,0
+Khanh Hoa,2,200
+Binh Thuan,2,0
+Tay Ninh,2,0
+An Giang,2,0
+Nam Dinh,1,0
+Ha Tinh,1,0
+Quang Binh,1,0
+Binh Dinh,1,0
+Dong Thap,1,0
+Tien Giang,1,0
+Vung Tau,3,0
+Kien Giang,1,0
+Vinh Long,1,0
+Ben Tre,1,0
+Bac Lieu,1,0
+Soc Trang,1,0
+Ca Mau,1,0

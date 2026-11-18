@@ -1,6 +1,9 @@
-industry,engagement,reach
-F&B,8.1,6800000
-Retail,7.2,4200000
-Fashion,6.5,3100000
-Electronics,7.8,2900000
-Automotive,5.9,1800000
+industry,engagement,reach,impressions
+Retail & FMCG,7.2,4200000,3842
+F&B,8.1,6800000,2956
+Fashion,6.5,3100000,1840
+Finance,,,1650
+Healthcare,,,980
+Automotive,5.9,1800000,720
+Education,,,560
+Technology,,,410

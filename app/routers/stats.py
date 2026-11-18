@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 from .. import db
 from ..realtime import broadcaster
 from ..schemas import (
+    CityMonthlyStat,
     CoverageResponse,
     IndustryStat,
     LocationDirectoryEntry,
@@ -42,34 +43,63 @@ def get_network_stats(conn: sqlite3.Connection = Depends(db.get_conn)):
 @router.get("/api/coverage", response_model=CoverageResponse)
 def get_coverage(conn: sqlite3.Connection = Depends(db.get_conn)):
     provinces = [
-        ProvinceCoverage(province=r["province"], level=r["level"], venues=r["venues"])
+        ProvinceCoverage(province=r["province"], level=int(r["level"]), venues=r["venues"])
         for r in conn.execute("SELECT province, level, venues FROM provinces ORDER BY province").fetchall()
     ]
     venue_types = [
         VenueTypeCount(type=r["type"], count=r["count"])
         for r in conn.execute("SELECT type, count FROM venue_types ORDER BY type").fetchall()
     ]
-    # Thư mục địa điểm và số liệu ngành lấy từ cùng SQLite; chưa có bảng
-    # nào thì hai trường này vắng — Frontend tự ẩn khối tương ứng.
+    # Thư mục địa điểm, số liệu ngành và số liệu tháng theo thành phố lấy từ
+    # cùng SQLite; chưa có bảng nào thì các trường này vắng — Frontend tự ẩn
+    # khối tương ứng.
     directory = None
     industry_stats = None
+    cities = None
     try:
         directory_rows = conn.execute(
-            "SELECT name, category, venues FROM directory ORDER BY name"
+            "SELECT name, category, subtitle, locations, reach FROM directory ORDER BY name"
         ).fetchall()
         directory = [
-            LocationDirectoryEntry(name=r["name"], category=r["category"], venues=r["venues"])
+            LocationDirectoryEntry(
+                name=r["name"],
+                category=r["category"],
+                subtitle=r["subtitle"],
+                locations=r["locations"],
+                reach=r["reach"],
+            )
             for r in directory_rows
         ]
     except sqlite3.OperationalError:
         pass
     try:
         industry_rows = conn.execute(
-            "SELECT industry, engagement, reach FROM industry_stats ORDER BY industry"
+            "SELECT industry, engagement, reach, impressions FROM industry_stats "
+            "ORDER BY impressions DESC"
         ).fetchall()
         industry_stats = [
-            IndustryStat(industry=r["industry"], engagement=r["engagement"], reach=r["reach"])
+            IndustryStat(
+                industry=r["industry"],
+                engagement=r["engagement"],
+                reach=r["reach"],
+                impressions=r["impressions"],
+            )
             for r in industry_rows
+        ]
+    except sqlite3.OperationalError:
+        pass
+    try:
+        city_rows = conn.execute(
+            "SELECT city, monthly_reach, monthly_engagements FROM city_stats "
+            "WHERE monthly_reach IS NOT NULL ORDER BY monthly_reach DESC"
+        ).fetchall()
+        cities = [
+            CityMonthlyStat(
+                city=r["city"],
+                monthlyReach=r["monthly_reach"],
+                monthlyEngagements=r["monthly_engagements"],
+            )
+            for r in city_rows
         ]
     except sqlite3.OperationalError:
         pass
@@ -78,6 +108,7 @@ def get_coverage(conn: sqlite3.Connection = Depends(db.get_conn)):
         venueTypes=venue_types,
         directory=directory,
         industryStats=industry_stats,
+        cities=cities,
     )
 
 

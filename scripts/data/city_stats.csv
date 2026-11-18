@@ -1,5 +1,7 @@
-city,reach,engagements,impressions_per_day
-Hà Nội,9800000,6700000,2100000
-TP. Hồ Chí Minh,12400000,8600000,2300000
-Đà Nẵng,600000,400000,300000
-Cần Thơ,1400000,900000,300000
+city,reach,engagements,impressions_per_day,monthly_reach,monthly_engagements
+Hà Nội,9800000,6700000,2100000,7.8,5.2
+TP. Hồ Chí Minh,12400000,8600000,2300000,12.4,8.7
+Đà Nẵng,600000,400000,300000,2.6,1.8
+Hải Phòng,,,,1.7,1.1
+Cần Thơ,1400000,900000,300000,1.4,0.92
+Biên Hòa,,,,0.98,0.68

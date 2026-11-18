@@ -51,13 +51,16 @@ Case study lấy qua Strapi REST, không qua backend này.
 
 ## Nhập dữ liệu thử nghiệm
 
-`scripts/data/` đã có sẵn **dữ liệu mẫu** (47 dòng, 8 file): số liệu lấy
+`scripts/data/` đã có sẵn **dữ liệu mẫu** (73 dòng, 8 file): số liệu lấy
 theo trang mẫu AWING trên Figma — 25,4 triệu lượt kết nối, 63 tỉnh, 195
-chuỗi, 10.953 địa điểm; 10 tỉnh, 6 loại venue, 10 địa điểm, 3 định dạng
-quảng cáo, 4 thành phố, 8 mục thư mục, 5 ngành. Các số liệu nhất quán với
-nhau: tổng venues của `provinces` và `venue_types` đều bằng 10.953; tổng
-3 thành phố Hà Nội + TP.HCM + Đà Nẵng đúng 22,8 triệu reach / 15,7 triệu
-engagement / 4,7 triệu impressions/ngày theo trang mẫu.
+chuỗi, 10.953 địa điểm; 32 tỉnh với mức tương tác 1-5 cho bản đồ nhiệt
+Location Network (tên tỉnh dùng đúng nhãn trên bản đồ Figma), 6 loại venue,
+10 địa điểm, 3 định dạng quảng cáo, 6 thành phố (kèm trung bình tháng cho
+biểu đồ Reach vs Engagement), 7 chuỗi trong thư mục Location Network, 8
+ngành (kèm tổng impressions cho biểu đồ Engagement by Industry). Các số
+liệu nhất quán với nhau: tổng venues của `provinces` và `venue_types` đều
+bằng 10.953; tổng 3 thành phố Hà Nội + TP.HCM + Đà Nẵng đúng 22,8 triệu
+reach / 15,7 triệu engagement / 4,7 triệu impressions/ngày theo trang mẫu.
 
 Nhập vào SQLite:
 
@@ -65,7 +68,12 @@ Nhập vào SQLite:
 python scripts/import_csv.py
 ```
 
-Chạy lại nhiều lần đều an toàn (ghi đè theo khóa chính). Muốn thay bằng dữ
+Chạy lại nhiều lần đều an toàn (ghi đè theo khóa chính; các bảng
+`provinces`, `directory`, `industry_stats` được định nghĩa trọn vẹn trong
+CSV nên nhập là thay toàn bộ). Database đã có từ trước được nâng cấp tự
+động khi khởi động (`app/db.py` `_migrate`: level tỉnh `low/medium/high`
+map sang 1/3/5, bảng `directory` cũ dựng lại rỗng, thêm cột
+`industry_stats.impressions` và `city_stats.monthly_*`). Muốn thay bằng dữ
 liệu thật thì sửa trực tiếp các file CSV rồi chạy lại, hoặc thao tác trực
 tiếp bằng `sqlite3 awing.db`.
 
