@@ -53,6 +53,8 @@ CITY_LOCALIZED: dict[str, dict[str, str]] = {
     "Cần Thơ": {"en": "Can Tho", "short_vi": "Cần Thơ", "short_en": "Can Tho"},
     "Biên Hòa": {"en": "Bien Hoa", "short_vi": "Biên Hòa", "short_en": "Bien Hoa"},
     "Bình Dương": {"en": "Binh Duong", "short_vi": "Bình Dương", "short_en": "Binh Duong"},
+    "Vũng Tàu": {"en": "Vung Tau", "short_vi": "Vũng Tàu", "short_en": "Vung Tau"},
+    "Huế": {"en": "Hue", "short_vi": "Huế", "short_en": "Hue"},
 }
 
 

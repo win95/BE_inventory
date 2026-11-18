@@ -24,7 +24,7 @@ TABLES = {
     "provinces": ("province,level,venues", "province"),
     "venue_types": ("type,count", "type"),
     "locations": ("name,area,city,reach", "name,city"),
-    "ad_formats": ("name,metric_label,metric_value,duration_seconds", "name"),
+    "ad_formats": ("name,metric_label,metric_value,duration_seconds,description", "name"),
     "city_stats": ("city,reach,engagements,impressions_per_day,monthly_reach,monthly_engagements", "city"),
     "directory": ("name,category,subtitle,locations,reach", "name"),
     "industry_stats": ("industry,engagement,reach,impressions", "industry"),
@@ -32,7 +32,7 @@ TABLES = {
 
 # Các bảng này được định nghĩa trọn vẹn trong CSV — nhập là thay toàn bộ
 # (xóa rồi nhập lại) để dòng cũ đổi tên/khóa không còn sót lại thành rác.
-REPLACE_TABLES = {"provinces", "directory", "industry_stats"}
+REPLACE_TABLES = {"provinces", "directory", "industry_stats", "ad_formats"}
 
 
 def import_table(conn: sqlite3.Connection, data_dir: Path, table: str) -> int:

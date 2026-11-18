@@ -45,7 +45,8 @@ def get_coverage(locale: str = "vi", conn: sqlite3.Connection = Depends(db.get_c
     loc = locale_names.parse_locale(locale)
     provinces = [
         ProvinceCoverage(
-            province=locale_names.province_name(r["province"], loc),
+            province=r["province"],
+            displayName=locale_names.province_name(r["province"], loc),
             level=int(r["level"]),
             venues=r["venues"],
         )

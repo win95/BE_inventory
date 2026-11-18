@@ -54,9 +54,10 @@ CREATE TABLE IF NOT EXISTS locations (
 CREATE TABLE IF NOT EXISTS ad_formats (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
-    metric_label TEXT NOT NULL DEFAULT 'View rate',
+    metric_label TEXT NOT NULL DEFAULT 'Engagement',
     metric_value REAL,
-    duration_seconds INTEGER
+    duration_seconds INTEGER,
+    description TEXT
 );
 
 CREATE TABLE IF NOT EXISTS city_stats (
@@ -200,6 +201,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
     for col in ("monthly_reach", "monthly_engagements"):
         if col not in _columns(conn, "city_stats"):
             conn.execute(f"ALTER TABLE city_stats ADD COLUMN {col} REAL")
+    # ad_formats: mô tả hiển thị trên thẻ format (Figma Advertisers).
+    if "description" not in _columns(conn, "ad_formats"):
+        conn.execute("ALTER TABLE ad_formats ADD COLUMN description TEXT")
 
 
 def init_db() -> None:

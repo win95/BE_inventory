@@ -27,7 +27,11 @@ class NetworkStats(BaseModel):
 
 
 class ProvinceCoverage(BaseModel):
+    # Khóa ổn định: tên tiếng Anh trong DB — Frontend khớp với lưới heatmap
+    # bằng trường này, không dùng displayName (đổi theo locale).
     province: str
+    # Tên hiển thị theo locale (?locale=vi|en); vi -> "Hà Nội", en -> "Ha Noi".
+    displayName: Optional[str] = None
     # Mức tương tác 1-5 (1 Emerging, 2 Active, 3 Strong, 4 High, 5 Flagship).
     level: int
     venues: int
@@ -93,6 +97,8 @@ class AdFormat(BaseModel):
     metricLabel: str
     metricValue: Optional[float] = None
     durationSeconds: Optional[int] = None
+    # Mô tả hiển thị trên thẻ format (theo Figma Advertisers).
+    description: Optional[str] = None
 
 
 class SuggestCity(BaseModel):
@@ -100,6 +106,9 @@ class SuggestCity(BaseModel):
     reach: Optional[int] = None
     engagements: Optional[int] = None
     impressionsPerDay: Optional[int] = None
+    # Tương tác trung bình tháng, đơn vị TRIỆU (như trong DB) — số hiện trên
+    # chip thành phố khi được chọn + tổng Potential Engagements (Figma).
+    monthlyEngagements: Optional[float] = None
 
 
 class SuggestRequest(BaseModel):

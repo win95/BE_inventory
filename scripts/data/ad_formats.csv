@@ -1,4 +1,5 @@
-name,metric_label,metric_value,duration_seconds
-Bumper Ads,View rate,94,6
-Banner/Slide,View rate,78,15
-Video Full Screen,View rate,88,30
+name,metric_label,metric_value,duration_seconds,description
+Bumper Ads,Engagement,94,6,"Short pre-roll ads before Wi-Fi content. Captive audience, 100% view-through rate — zero skip."
+Banner / Slide,Engagement,78,15,Rich interactive swipe-through banners with direct CTA links and product showcases.
+Text Matching,Engagement,62,30,Context-matched text ads tied to user browsing patterns for hyper-relevant targeting.
+Video Full Screen,Engagement,88,30,Immersive full-screen video takeover on the Wi-Fi portal. Maximum brand impact.

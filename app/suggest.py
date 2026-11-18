@@ -68,26 +68,40 @@ def suggest(
     start = (page - 1) * page_size
     page_locations = locations[start : start + page_size]
 
+    # Thứ tự format theo đúng file CSV (thứ tự hiển thị trên Figma
+    # Advertisers: Bumper Ads, Banner/Slide, Text Matching, Video Full
+    # Screen) — không sắp theo metric_value.
     formats = [
         AdFormat(
             name=row["name"],
             metricLabel=row["metric_label"],
             metricValue=row["metric_value"],
             durationSeconds=row["duration_seconds"],
+            description=row["description"],
         )
         for row in conn.execute(
-            "SELECT name, metric_label, metric_value, duration_seconds "
-            "FROM ad_formats ORDER BY metric_value DESC"
+            "SELECT name, metric_label, metric_value, duration_seconds, "
+            "description FROM ad_formats"
         ).fetchall()
     ]
 
-    # Chỉ thành phố có tổng reach mới làm chip gợi ý — các dòng chỉ có số
-    # liệu tháng (monthly_reach) phục vụ biểu đồ Location Network, không
-    # đưa vào gợi ý.
+    # Chip thành phố: TẤT CẢ dòng trong city_stats (kể cả dòng chỉ có số
+    # liệu tháng hoặc chưa có số liệu nào như Vũng Tàu, Huế — chip đó chỉ
+    # hiện tên, không có số, đúng như Figma). Xếp theo độ khớp prompt rồi
+    # theo monthly_engagements giảm dần, null cuối.
     city_rows = conn.execute(
-        "SELECT city, reach, engagements, impressions_per_day FROM city_stats "
-        "WHERE reach IS NOT NULL"
+        "SELECT city, reach, engagements, impressions_per_day, "
+        "monthly_engagements FROM city_stats"
     ).fetchall()
+    city_rows.sort(
+        key=lambda r: (
+            -len(prompt_tokens & tokens(r["city"])),
+            (0, -r["monthly_engagements"])
+            if r["monthly_engagements"] is not None
+            else (1, 0),
+            r["city"],
+        )
+    )
     cities = (
         [
             SuggestCity(
@@ -95,6 +109,7 @@ def suggest(
                 reach=row["reach"],
                 engagements=row["engagements"],
                 impressionsPerDay=row["impressions_per_day"],
+                monthlyEngagements=row["monthly_engagements"],
             )
             for row in city_rows
         ]

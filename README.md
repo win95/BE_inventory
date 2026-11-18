@@ -36,8 +36,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 | Method | Endpoint | Mô tả |
 |---|---|---|
 | `GET` | `/api/network-stats` | Số liệu mạng lưới (F03). |
-| `GET` | `/api/coverage` | Phủ sóng theo tỉnh, loại venue, thư mục địa điểm, số liệu ngành (F04, F17). Hỗ trợ `?locale=vi|en` (mặc định vi): tên tỉnh/thành trả theo locale, `cities[].short` là nhãn ngắn cho trục X biểu đồ. |
-| `POST` | `/api/suggest` | Gợi ý chiến dịch theo prompt, body `{ prompt, page?, pageSize?, locale? }` (F02, F06). `locale` vi/en (mặc định vi) dịch tên thành phố trong kết quả; việc khớp prompt vẫn dùng tên gốc trong DB nên prompt tiếng Anh vẫn khớp. |
+| `GET` | `/api/coverage` | Phủ sóng theo tỉnh, loại venue, thư mục địa điểm, số liệu ngành (F04, F17). Hỗ trợ `?locale=vi|en` (mặc định vi): `provinces[].province` giữ nguyên tên tiếng Anh làm khóa ổn định (Frontend khớp lưới heatmap bằng trường này), `displayName` là tên theo locale; `cities[].short` là nhãn ngắn cho trục X biểu đồ. |
+| `POST` | `/api/suggest` | Gợi ý chiến dịch theo prompt, body `{ prompt, page?, pageSize?, locale? }` (F02, F06). `locale` vi/en (mặc định vi) dịch tên thành phố trong kết quả; việc khớp prompt vẫn dùng tên gốc trong DB nên prompt tiếng Anh vẫn khớp. `cities` trả tất cả 8 dòng `city_stats` (kể cả Vũng Tàu/Huế chưa có số liệu), mỗi thành phố có `monthlyEngagements` (triệu) dùng cho số trên chip + tổng Potential Engagements; `formats` trả 4 định dạng theo đúng thứ tự CSV, có `description` và nhãn metric `Engagement`. |
 | `POST` | `/api/leads` | Lead form (F12). |
 | `POST` | `/api/contact` | Form Contact Us (F15). |
 | `GET` | `/api/events/stats` | SSE: full snapshot số liệu mỗi 30 giây (realtime, trễ tối đa 1 phút). |
@@ -69,13 +69,13 @@ python scripts/import_csv.py
 ```
 
 Chạy lại nhiều lần đều an toàn (ghi đè theo khóa chính; các bảng
-`provinces`, `directory`, `industry_stats` được định nghĩa trọn vẹn trong
-CSV nên nhập là thay toàn bộ). Database đã có từ trước được nâng cấp tự
-động khi khởi động (`app/db.py` `_migrate`: level tỉnh `low/medium/high`
-map sang 1/3/5, bảng `directory` cũ dựng lại rỗng, thêm cột
-`industry_stats.impressions` và `city_stats.monthly_*`). Muốn thay bằng dữ
-liệu thật thì sửa trực tiếp các file CSV rồi chạy lại, hoặc thao tác trực
-tiếp bằng `sqlite3 awing.db`.
+`provinces`, `directory`, `industry_stats`, `ad_formats` được định nghĩa
+trọn vẹn trong CSV nên nhập là thay toàn bộ). Database đã có từ trước được
+nâng cấp tự động khi khởi động (`app/db.py` `_migrate`: level tỉnh
+`low/medium/high` map sang 1/3/5, bảng `directory` cũ dựng lại rỗng, thêm
+cột `industry_stats.impressions`, `city_stats.monthly_*` và
+`ad_formats.description`). Muốn thay bằng dữ liệu thật thì sửa trực tiếp
+các file CSV rồi chạy lại, hoặc thao tác trực tiếp bằng `sqlite3 awing.db`.
 
 ## Realtime
 
