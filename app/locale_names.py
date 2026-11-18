@@ -7,6 +7,8 @@ chữ cứng trên giao diện. Tên nào không có trong bảng thì trả ngu
 (dữ liệu mới thêm sau vẫn hiện được, chỉ chưa có bản dịch).
 """
 
+import re
+
 # Tỉnh: khóa là tên tiếng Anh trong DB, giá trị là tên tiếng Việt.
 PROVINCE_VI: dict[str, str] = {
     "Ha Noi": "Hà Nội",
@@ -57,6 +59,49 @@ CITY_LOCALIZED: dict[str, dict[str, str]] = {
     "Huế": {"en": "Hue", "short_vi": "Huế", "short_en": "Hue"},
 }
 
+# Nhãn dữ liệu theo locale (dịch hết theo từng mode, 18/11/2026). Các bảng
+# này là tập kín theo dữ liệu mẫu hiện tại; nhãn nào không có trong bảng thì
+# trả nguyên văn (dữ liệu mới thêm sau vẫn hiện được, chỉ chưa có bản dịch).
+VENUE_TYPE_VI: dict[str, str] = {
+    "Airport": "Sân bay",
+    "Coffee": "Cà phê",
+    "Mall": "Trung tâm thương mại",
+    "Office": "Văn phòng",
+    "Retail": "Bán lẻ",
+    "University": "Trường đại học",
+}
+
+DIRECTORY_CATEGORY_VI: dict[str, str] = {
+    "Retail": "Bán lẻ",
+    "F&B": "F&B",
+    "Transit": "Giao thông",
+    "Healthcare": "Y tế",
+}
+
+INDUSTRY_VI: dict[str, str] = {
+    "Retail & FMCG": "Bán lẻ & FMCG",
+    "F&B": "F&B",
+    "Fashion": "Thời trang",
+    "Finance": "Tài chính",
+    "Healthcare": "Y tế",
+    "Automotive": "Ô tô",
+    "Education": "Giáo dục",
+    "Technology": "Công nghệ",
+}
+
+# Mô tả định dạng quảng cáo: DB lưu bản tiếng Anh (theo Figma); bản vi dịch
+# ở đây, key theo tên format. Nhãn metric cũng vậy.
+FORMAT_DESCRIPTION_VI: dict[str, str] = {
+    "Bumper Ads": "Quảng cáo ngắn trước nội dung Wi-Fi. Khán giả bị thu hút, tỉ lệ xem hết 100% — không thể bỏ qua.",
+    "Banner / Slide": "Banner tương tác vuốt qua với link CTA trực tiếp và giới thiệu sản phẩm.",
+    "Text Matching": "Quảng cáo chữ khớp ngữ cảnh với thói quen duyệt web của người dùng, nhắm đúng đối tượng.",
+    "Video Full Screen": "Video toàn màn hình chiếm sóng trên cổng Wi-Fi. Tác động thương hiệu tối đa.",
+}
+
+METRIC_LABEL_VI: dict[str, str] = {
+    "Engagement": "Tương tác",
+}
+
 
 def parse_locale(value: str | None) -> str:
     """Chuẩn hóa locale: chỉ nhận vi/en, còn lại (kể cả vi-VN, en-US) về vi."""
@@ -87,3 +132,58 @@ def city_short(db_name: str, locale: str) -> str:
     if not entry:
         return db_name
     return entry["short_en"] if locale == "en" else entry["short_vi"]
+
+
+def venue_type_name(db_name: str, locale: str) -> str:
+    """Loại địa điểm theo locale (DB lưu tên tiếng Anh)."""
+    if locale == "vi":
+        return VENUE_TYPE_VI.get(db_name, db_name)
+    return db_name
+
+
+def directory_category_name(db_name: str, locale: str) -> str:
+    """Nhóm thư mục địa điểm theo locale (DB lưu tên tiếng Anh)."""
+    if locale == "vi":
+        return DIRECTORY_CATEGORY_VI.get(db_name, db_name)
+    return db_name
+
+
+def industry_name(db_name: str, locale: str) -> str:
+    """Tên ngành theo locale (DB lưu tên tiếng Anh)."""
+    if locale == "vi":
+        return INDUSTRY_VI.get(db_name, db_name)
+    return db_name
+
+
+def format_description(name: str, db_description: str | None, locale: str) -> str | None:
+    """Mô tả định dạng quảng cáo theo locale (DB lưu bản tiếng Anh)."""
+    if locale == "vi":
+        return FORMAT_DESCRIPTION_VI.get(name, db_description)
+    return db_description
+
+
+def metric_label_name(db_label: str, locale: str) -> str:
+    """Nhãn chỉ số (vd. Engagement) theo locale."""
+    if locale == "vi":
+        return METRIC_LABEL_VI.get(db_label, db_label)
+    return db_label
+
+
+def directory_subtitle(subtitle: str, locale: str) -> str:
+    """Ghi chú dưới tên chuỗi ('63 provinces', '24 cities', 'Ha Noi').
+
+    Vi: dịch mẫu 'N provinces'/'N cities'; tên thành phố thì dùng tên tiếng
+    Việt theo bảng thành phố. En: giữ nguyên như trong DB.
+    """
+    if locale != "vi":
+        return subtitle
+    m = re.match(r"^(\d+)\s+provinces$", subtitle)
+    if m:
+        return f"{m.group(1)} tỉnh thành"
+    m = re.match(r"^(\d+)\s+cities$", subtitle)
+    if m:
+        return f"{m.group(1)} thành phố"
+    for db_name, entry in CITY_LOCALIZED.items():
+        if entry["en"] == subtitle:
+            return db_name
+    return subtitle

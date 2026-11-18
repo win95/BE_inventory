@@ -83,10 +83,10 @@ def suggest(
     formats = [
         AdFormat(
             name=row["name"],
-            metricLabel=row["metric_label"],
+            metricLabel=locale_names.metric_label_name(row["metric_label"], locale),
             metricValue=row["metric_value"],
             durationSeconds=row["duration_seconds"],
-            description=row["description"],
+            description=locale_names.format_description(row["name"], row["description"], locale),
         )
         for row in conn.execute(
             "SELECT name, metric_label, metric_value, duration_seconds, "

@@ -53,7 +53,7 @@ def get_coverage(locale: str = "vi", conn: sqlite3.Connection = Depends(db.get_c
         for r in conn.execute("SELECT province, level, venues FROM provinces ORDER BY province").fetchall()
     ]
     venue_types = [
-        VenueTypeCount(type=r["type"], count=r["count"])
+        VenueTypeCount(type=locale_names.venue_type_name(r["type"], loc), count=r["count"])
         for r in conn.execute("SELECT type, count FROM venue_types ORDER BY type").fetchall()
     ]
     # Thư mục địa điểm, số liệu ngành và số liệu tháng theo thành phố lấy từ
@@ -69,8 +69,8 @@ def get_coverage(locale: str = "vi", conn: sqlite3.Connection = Depends(db.get_c
         directory = [
             LocationDirectoryEntry(
                 name=r["name"],
-                category=r["category"],
-                subtitle=r["subtitle"],
+                category=locale_names.directory_category_name(r["category"], loc),
+                subtitle=locale_names.directory_subtitle(r["subtitle"], loc),
                 locations=r["locations"],
                 reach=r["reach"],
             )
@@ -85,7 +85,7 @@ def get_coverage(locale: str = "vi", conn: sqlite3.Connection = Depends(db.get_c
         ).fetchall()
         industry_stats = [
             IndustryStat(
-                industry=r["industry"],
+                industry=locale_names.industry_name(r["industry"], loc),
                 engagement=r["engagement"],
                 reach=r["reach"],
                 impressions=r["impressions"],
