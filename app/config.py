@@ -41,3 +41,23 @@ GROWTH_ENABLED = os.environ.get("GROWTH_ENABLED", "true").lower() in (
 GROWTH_CONNECTIONS_PER_CYCLE = int(
     os.environ.get("GROWTH_CONNECTIONS_PER_CYCLE", "13")
 )
+
+# Lead + OTP (BE 11-13, R1-2).
+# Turnstile: secret key của Cloudflare. Để trống = chế độ giả lập (quyết
+# định #4 chưa chốt): backend chấp nhận mọi token (kể cả null) và ghi log,
+# KHÔNG gọi siteverify. Khi có secret thì token sai bị từ chối thật.
+TURNSTILE_SECRET = os.environ.get("TURNSTILE_SECRET", "")
+# Email: "fake" (mặc định — chưa chốt nhà cung cấp SES/SendGrid, quyết định
+# #4): chỉ ghi log nội dung email, không gửi thật. "ses"/"sendgrid" chưa
+# được cài đặt — đặt tên khác fake thì gửi email trả lỗi rõ ràng.
+EMAIL_PROVIDER = os.environ.get("EMAIL_PROVIDER", "fake").lower()
+EMAIL_FROM = os.environ.get("EMAIL_FROM", "no-reply@awing.vn")
+OTP_TTL_MINUTES = int(os.environ.get("OTP_TTL_MINUTES", "10"))
+OTP_MAX_ATTEMPTS = int(os.environ.get("OTP_MAX_ATTEMPTS", "5"))
+OTP_RESEND_COOLDOWN_SECONDS = int(
+    os.environ.get("OTP_RESEND_COOLDOWN_SECONDS", "60")
+)
+# Token lead cấp sau khi xác thực OTP (dùng cho PATCH /api/leads/{id}).
+LEAD_TOKEN_EXPIRE_MINUTES = int(os.environ.get("LEAD_TOKEN_EXPIRE_MINUTES", "60"))
+# Rate limit tạo lead: số request / phút / IP (chống spam form).
+LEAD_RATE_LIMIT_PER_MINUTE = int(os.environ.get("LEAD_RATE_LIMIT_PER_MINUTE", "5"))

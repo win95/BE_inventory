@@ -38,14 +38,50 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 | `GET` | `/api/network-stats` | Số liệu mạng lưới (F03). |
 | `GET` | `/api/coverage` | Phủ sóng theo tỉnh, loại venue, thư mục địa điểm, số liệu ngành (F04, F17). Hỗ trợ `?locale=vi|en` (mặc định vi): `provinces[].province` giữ nguyên tên tiếng Anh làm khóa ổn định (Frontend khớp lưới heatmap bằng trường này), `displayName` là tên theo locale; `cities[].short` là nhãn ngắn cho trục X biểu đồ. |
 | `POST` | `/api/suggest` | Gợi ý chiến dịch theo prompt, body `{ prompt, page?, pageSize?, locale? }` (F02, F06). `locale` vi/en (mặc định vi) dịch tên thành phố trong kết quả; việc khớp prompt vẫn dùng tên gốc trong DB nên prompt tiếng Anh vẫn khớp. `cities` trả tất cả 8 dòng `city_stats` (kể cả Vũng Tàu/Huế chưa có số liệu), mỗi thành phố có `monthlyEngagements` (triệu) dùng cho số trên chip + tổng Potential Engagements; `formats` trả 4 định dạng theo đúng thứ tự CSV, có `description` và nhãn metric `Engagement`. |
-| `POST` | `/api/leads` | Lead form (F12). |
+| `POST` | `/api/leads` | Lead form R1-2 (LEAD-01): body `{ name, email, phone (E.164), company, industry?, brand?, regions?, notes?, consentContact, consentMarketing?, turnstileToken?, utm?, source?, language?, market? }` → `201 { leadId, otpSent }`. Rate limit 5/phút/IP; email chưa xác thực trong 10 phút thì dùng lại lead cũ; SĐT sai định dạng E.164 → 422. |
+| `POST` | `/api/leads/{id}/verify` | Xác thực OTP 6 số (hiệu lực 10 phút, tối đa 5 lần sai) → `{ verified, leadToken }` (JWT lead 60 phút). Mã sai → 400 `OTP_WRONG` kèm `details.attemptsLeft`; hết hạn → 400 `OTP_EXPIRED`; sai quá 5 lần → 429 `OTP_LOCKED`. Chỉ lead đã xác thực mới vào hàng đợi CRM. |
+| `POST` | `/api/leads/{id}/resend` | Gửi lại OTP: cooldown 60s (`429 RESEND_COOLDOWN` kèm `retryAfter`), tối đa 5 mã/ngày (`429 RESEND_LIMIT`). |
+| `PATCH` | `/api/leads/{id}` | Bổ sung hồ sơ sau xác thực (FE 21): cần `Authorization: Bearer <leadToken>` khớp leadId, chỉ cập nhật trường gửi lên. |
+| `POST` | `/api/newsletter` | Đăng ký nhận tin ở footer → 202; email trùng vẫn 202 (không lộ đã đăng ký). Double opt-in ở BE 17 (R1-4). |
 | `POST` | `/api/contact` | Form Contact Us (F15). |
 | `GET` | `/api/events/stats` | SSE: full snapshot số liệu mỗi 30 giây (realtime, trễ tối đa 1 phút). |
 | `GET` | `/api/auth/google` | Bắt đầu đăng nhập Google (F13). |
 | `GET` | `/api/auth/google/callback` | Callback Google, phát JWT 24h, chuyển về Frontend. |
 | `POST` | `/api/webhooks/strapi` | Nhận webhook publish từ Strapi, đẩy sự kiện `content-updated` qua SSE. |
 
-Định dạng lỗi thống nhất: `{"error": {"code": "...", "message": "..."}}`.
+Định dạng lỗi thống nhất: `{"error": {"code": "...", "message": "..."}}` (+ `details` tùy endpoint, vd. OTP sai kèm `attemptsLeft`).
+
+## Lead + OTP + CRM giả lập (R1-2, BE 11-14)
+
+Theo quyết định fake API/data của tran (23/11/2026, cho R1): chưa chốt CRM
+(quyết định #1), nhà cung cấp email và Turnstile (quyết định #4) nên 3
+luồng chạy ở chế độ giả lập — code thật, tích hợp thật thay vào sau mà
+không đổi API:
+
+- **OTP/email** (`app/otp.py`, `app/email.py`): mã 6 số chỉ lưu dạng
+  SHA-256 (không lưu mã gốc, không log mã ngoài log email giả lập);
+  `EMAIL_PROVIDER=fake` (mặc định) thì "gửi" = ghi log đầy đủ nội dung
+  email. Kiểm thử end-to-end thì đọc mã từ log backend.
+- **Turnstile** (`app/turnstile.py`): chưa có `TURNSTILE_SECRET` thì chấp
+  nhận mọi token (kể cả null) và ghi log; có secret thì gọi siteverify
+  thật, token sai bị từ chối. Frontend load widget thật khi có
+  `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, chưa có thì hiện "mô phỏng".
+- **CRM** (`app/crm.py`, `crm_jobs`): lead đã xác thực mới vào hàng đợi;
+  worker trong tiến trình chạy mỗi 30s, "đẩy" = ghi log payload + thông
+  báo sales, retry cấp số nhân tối đa 5 lần rồi đánh `failed`.
+
+Biến môi trường mới (xem `.env.example`): `TURNSTILE_SECRET`,
+`EMAIL_PROVIDER` (fake), `EMAIL_FROM`, `OTP_TTL_MINUTES` (10),
+`OTP_MAX_ATTEMPTS` (5), `OTP_RESEND_COOLDOWN_SECONDS` (60),
+`LEAD_TOKEN_EXPIRE_MINUTES` (60), `LEAD_RATE_LIMIT_PER_MINUTE` (5).
+
+**CORS — 2 lỗi đã sửa 23/11/2026:** (1) Chrome gửi preflight kèm
+`Access-Control-Request-Private-Network` khi trang ở 127.0.0.1 gọi API ở
+cổng khác — Starlette trả 400 nếu thiếu `allow_private_network=True`
+(đã bật trong `app/main.py`; lỗi này làm form lead không gửi được từ
+trình duyệt dù curl vẫn 200). (2) `allow_methods` thiếu `PATCH` nên
+bổ sung hồ sơ bị chặn — đã thêm. `FRONTEND_ORIGIN` chấp nhận nhiều
+origin, phân tách bằng dấu phẩy (vd. `http://localhost:3100,http://127.0.0.1:3100`).
 
 Case study lấy qua Strapi REST, không qua backend này.
 

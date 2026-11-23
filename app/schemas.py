@@ -133,10 +133,54 @@ class SuggestResponse(BaseModel):
 
 
 class LeadPayload(BaseModel):
+    # Lead form R1-2 (LEAD-01, Docs §6.2; BE 11): bắt buộc họ tên / công ty /
+    # email / SĐT E.164 / đồng ý liên hệ; tùy chọn ngành / thương hiệu /
+    # khu vực / ghi chú; đồng ý nhận tin; token Turnstile (null khi giả lập);
+    # UTM + nguồn + ngôn ngữ + thị trường (trường ẩn).
     name: str = Field(min_length=1, max_length=200)
-    email: str = Field(min_length=1, max_length=200)
-    phone: str = Field(min_length=1, max_length=50)
-    message: str = Field(min_length=1, max_length=5000)
+    email: str = Field(pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$", max_length=200)
+    phone: str = Field(pattern=r"^\+[1-9]\d{7,14}$", max_length=20)
+    company: str = Field(min_length=1, max_length=200)
+    industry: Optional[str] = Field(default=None, max_length=100)
+    brand: Optional[str] = Field(default=None, max_length=200)
+    regions: Optional[list[str]] = None
+    notes: Optional[str] = Field(default=None, max_length=5000)
+    message: Optional[str] = Field(default=None, max_length=5000)
+    consentContact: bool
+    consentMarketing: bool = False
+    turnstileToken: Optional[str] = None
+    utm: Optional[dict[str, str]] = None
+    source: Optional[str] = Field(default=None, max_length=100)
+    language: str = "vi"
+    market: str = "vn"
+
+
+class LeadSubmitResponse(BaseModel):
+    leadId: int
+    otpSent: bool
+
+
+class OtpVerifyPayload(BaseModel):
+    code: str = Field(pattern=r"^\d{6}$")
+
+
+class OtpVerifyResponse(BaseModel):
+    verified: bool
+    leadToken: str
+
+
+class LeadProfilePayload(BaseModel):
+    # Bổ sung hồ sơ sau xác thực (FE 21): chỉ cập nhật trường nào gửi lên.
+    industry: Optional[str] = Field(default=None, max_length=100)
+    brand: Optional[str] = Field(default=None, max_length=200)
+    regions: Optional[list[str]] = None
+    notes: Optional[str] = Field(default=None, max_length=5000)
+    consentMarketing: Optional[bool] = None
+
+
+class NewsletterPayload(BaseModel):
+    email: str = Field(pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$", max_length=200)
+    locale: str = "vi"
 
 
 class ContactPayload(BaseModel):
