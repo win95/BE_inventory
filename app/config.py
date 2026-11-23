@@ -39,5 +39,5 @@ GROWTH_ENABLED = os.environ.get("GROWTH_ENABLED", "true").lower() in (
 # khác (reach, engagements, impressions/ngày, monthly) tăng theo cùng tỉ lệ %
 # so với tổng hiện tại của chúng (xem app/growth.py).
 GROWTH_CONNECTIONS_PER_CYCLE = int(
-    os.environ.get("GROWTH_CONNECTIONS_PER_CYCLE", "100000")
+    os.environ.get("GROWTH_CONNECTIONS_PER_CYCLE", "13")
 )
