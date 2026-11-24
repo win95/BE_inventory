@@ -155,6 +155,10 @@ CREATE TABLE IF NOT EXISTS newsletter_subscribers (
     email TEXT NOT NULL UNIQUE,
     locale TEXT NOT NULL DEFAULT 'vi',
     status TEXT NOT NULL DEFAULT 'pending',  -- pending | confirmed
+    -- BE 17 double opt-in: token xác nhận chỉ lưu dạng hash.
+    confirm_token_hash TEXT,
+    confirm_token_created_at TEXT,
+    confirmed_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -166,6 +170,55 @@ CREATE TABLE IF NOT EXISTS contact_messages (
     phone TEXT NOT NULL,
     message TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Đăng ký sự kiện (BE 15): sự kiện nằm ở Strapi, chỉ lưu đăng ký ở đây.
+-- event_slug là slug Strapi; event_title/start/end do FE gửi kèm để làm
+-- email xác nhận + file .ics (backend không tự gọi Strapi để lấy lịch).
+CREATE TABLE IF NOT EXISTS event_registrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_slug TEXT NOT NULL,
+    event_title TEXT,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    phone TEXT,
+    consent INTEGER NOT NULL DEFAULT 0,
+    locale TEXT NOT NULL DEFAULT 'vi',
+    start_date TEXT,
+    end_date TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Nộp CV (BE 16): file lưu ở thư mục uploads (xem config.UPLOADS_DIR),
+-- DB chỉ giữ đường dẫn + tên gốc. Quét virus: GIẢ LẬP ở R1 (ghi log),
+-- ClamAV thật chờ hạ tầng.
+CREATE TABLE IF NOT EXISTS job_applications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_slug TEXT NOT NULL,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    phone TEXT,
+    cover_note TEXT,
+    file_path TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    file_size INTEGER NOT NULL,
+    consent INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Hàng đợi chung cho CRM/HR (BE 15-16): kind = 'event_registration' |
+-- 'job_application'. Worker CRM xử lý cùng vòng lặp với crm_jobs (BE 14).
+CREATE TABLE IF NOT EXISTS crm_outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    ref_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',  -- pending | sent | failed
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_retry_at TEXT NOT NULL DEFAULT (datetime('now')),
+    payload TEXT NOT NULL,  -- JSON
+    last_error TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS users (
@@ -291,6 +344,19 @@ def _migrate(conn: sqlite3.Connection) -> None:
         # kèm message ("" khi không có) nên không vỡ ràng buộc này; DB mới
         # tạo thẳng message NULL được.
         pass
+    # newsletter_subscribers: double opt-in (BE 17) — token xác nhận chỉ
+    # lưu dạng hash, kèm thời điểm tạo token để hết hạn sau 7 ngày.
+    sub_cols = {
+        "confirm_token_hash": "TEXT",
+        "confirm_token_created_at": "TEXT",
+        "confirmed_at": "TEXT",
+    }
+    existing_sub = _columns(conn, "newsletter_subscribers")
+    for col, ddl in sub_cols.items():
+        if col not in existing_sub:
+            conn.execute(
+                f"ALTER TABLE newsletter_subscribers ADD COLUMN {col} {ddl}"
+            )
 
 
 def init_db() -> None:

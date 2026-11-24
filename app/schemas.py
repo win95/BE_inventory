@@ -183,6 +183,31 @@ class NewsletterPayload(BaseModel):
     locale: str = "vi"
 
 
+class EventRegistrationPayload(BaseModel):
+    # Đăng ký sự kiện (BE 15, EVT-02): sự kiện nằm ở Strapi nên chỉ cần
+    # slug; title + start/end do FE gửi kèm (hiện trên trang chi tiết) để
+    # làm email xác nhận + file .ics.
+    name: str = Field(min_length=1, max_length=200)
+    email: str = Field(pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$", max_length=200)
+    phone: Optional[str] = Field(default=None, max_length=20)
+    eventTitle: Optional[str] = Field(default=None, max_length=300)
+    startDate: Optional[str] = Field(default=None, max_length=50)
+    endDate: Optional[str] = Field(default=None, max_length=50)
+    locale: str = "vi"
+    consent: bool = False
+
+
+class EventRegistrationResponse(BaseModel):
+    registrationId: int
+    registered: bool
+    duplicate: bool = False
+
+
+class JobApplicationResponse(BaseModel):
+    applicationId: int
+    received: bool
+
+
 class ContactPayload(BaseModel):
     type: str = Field(min_length=1, max_length=100)
     name: str = Field(min_length=1, max_length=200)

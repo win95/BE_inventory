@@ -11,7 +11,8 @@ POST /api/leads/{id}/resend — gửi lại OTP (cooldown 60s, tối đa 5 mã/n
 PATCH /api/leads/{id} — bổ sung hồ sơ (FE 21), cần Bearer lead token.
 POST /api/contact — giữ nguyên (trang Contact).
 POST /api/newsletter — đăng ký nhận tin ở footer (FE 18); double opt-in
-ở BE 17 (R1-4).
+(BE 17): lưu pending + gửi link xác nhận (token hash, hết hạn 7 ngày),
+xác nhận qua GET /api/newsletter/confirm?token=...
 """
 
 import datetime
@@ -328,11 +329,33 @@ def post_contact(payload: ContactPayload, conn: sqlite3.Connection = Depends(db.
 def post_newsletter(
     payload: NewsletterPayload, conn: sqlite3.Connection = Depends(db.get_conn)
 ):
-    cur = conn.execute(
-        "INSERT OR IGNORE INTO newsletter_subscribers (email, locale) VALUES (?, ?)",
-        (payload.email, payload.locale),
-    )
+    # BE 17 — double opt-in: email mới / đang chờ đều nhận link xác nhận
+    # (token chỉ lưu dạng hash, hết hạn sau 7 ngày); đã xác nhận rồi thì
+    # không gửi lại. Xác nhận qua GET /api/newsletter/confirm?token=...
+    import hashlib
+    import secrets
+
+    row = conn.execute(
+        "SELECT * FROM newsletter_subscribers WHERE email = ?", (payload.email,)
+    ).fetchone()
+    if row is not None and row["status"] == "confirmed":
+        return {"subscribed": True, "confirmed": True}
+    token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    if row is None:
+        conn.execute(
+            "INSERT INTO newsletter_subscribers (email, locale, status, "
+            "confirm_token_hash, confirm_token_created_at) "
+            "VALUES (?, ?, 'pending', ?, datetime('now'))",
+            (payload.email, payload.locale, token_hash),
+        )
+    else:
+        conn.execute(
+            "UPDATE newsletter_subscribers SET locale = ?, "
+            "confirm_token_hash = ?, confirm_token_created_at = datetime('now') "
+            "WHERE id = ?",
+            (payload.locale, token_hash, row["id"]),
+        )
     conn.commit()
-    if cur.rowcount > 0:
-        email.send_newsletter_confirmation(payload.email, payload.locale)
-    return {"subscribed": True}
+    email.send_newsletter_confirm(payload.email, token, payload.locale)
+    return {"subscribed": True, "confirmed": False}

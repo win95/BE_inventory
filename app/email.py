@@ -51,19 +51,77 @@ def send_otp_email(to: str, code: str, locale: str = "vi") -> bool:
     return _send(to, subject, body)
 
 
-def send_newsletter_confirmation(to: str, locale: str = "vi") -> bool:
+def send_newsletter_confirm(to: str, token: str, locale: str = "vi") -> bool:
+    from . import config as _config
+
+    link = (
+        f"{_config.FRONTEND_URL}/{locale}/newsletter/confirm?token={token}"
+    )
     if locale == "en":
-        subject = "You're on the AWING list"
+        subject = "Confirm your AWING subscription"
         body = (
-            "Thank you for subscribing to AWING updates. "
-            "Double opt-in (BE 17) lands in R1-4 — for now your email is "
-            "saved as pending."
+            "Thank you for subscribing to AWING updates.\n"
+            f"Please confirm your email by opening this link (valid 7 days):\n{link}\n"
+            "If you didn't request this, ignore this email."
         )
     else:
-        subject = "Bạn đã đăng ký nhận tin AWING"
+        subject = "Xác nhận đăng ký nhận tin AWING"
         body = (
-            "Cảm ơn bạn đã đăng ký nhận tin từ AWING. "
-            "Xác nhận double opt-in (BE 17) sẽ có ở R1-4 — hiện email của "
-            "bạn được lưu ở trạng thái chờ xác nhận."
+            "Cảm ơn bạn đã đăng ký nhận tin từ AWING.\n"
+            f"Bấm vào liên kết sau để xác nhận email (hiệu lực 7 ngày):\n{link}\n"
+            "Nếu bạn không yêu cầu, cứ bỏ qua email này."
+        )
+    return _send(to, subject, body)
+
+
+def send_event_confirmation(
+    to: str,
+    *,
+    event_title: str,
+    name: str,
+    start: str | None,
+    end: str | None,
+    ics: str | None,
+    locale: str = "vi",
+) -> bool:
+    if locale == "en":
+        subject = f"You're registered: {event_title}"
+        body = (
+            f"Hi {name},\n\n"
+            f"You're registered for “{event_title}”."
+            + (f"\nTime: {start}" + (f" – {end}" if end else "") if start else "")
+            + "\n\nSee you there — the AWING team."
+        )
+    else:
+        subject = f"Bạn đã đăng ký: {event_title}"
+        body = (
+            f"Chào {name},\n\n"
+            f"Bạn đã đăng ký tham gia “{event_title}”."
+            + (f"\nThời gian: {start}" + (f" – {end}" if end else "") if start else "")
+            + "\n\nHẹn gặp bạn — đội ngũ AWING."
+        )
+    if ics:
+        # Chế độ giả lập: file .ics đi kèm nội dung log (provider thật sẽ
+        # gửi dưới dạng attachment — xem ghi chú trong _send).
+        body += "\n\n--- Lịch (.ics) ---\n" + ics
+    return _send(to, subject, body)
+
+
+def send_job_application_notice(
+    to: str, *, job_slug: str, name: str, locale: str = "vi"
+) -> bool:
+    if locale == "en":
+        subject = "We received your application"
+        body = (
+            f"Hi {name},\n\n"
+            f"We received your application for the role “{job_slug}”. "
+            "Our HR team will review it and get back to you.\n\n— AWING HR"
+        )
+    else:
+        subject = "AWING đã nhận hồ sơ của bạn"
+        body = (
+            f"Chào {name},\n\n"
+            f"AWING đã nhận hồ sơ ứng tuyển vị trí “{job_slug}” của bạn. "
+            "Đội ngũ nhân sự sẽ xem xét và liên hệ lại.\n\n— HR AWING"
         )
     return _send(to, subject, body)

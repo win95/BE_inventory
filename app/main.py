@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 
 from . import config, crm, db
 from .realtime import broadcaster
-from .routers import auth, leads, stats, suggest, webhooks
+from .routers import auth, leads, registrations, search, stats, suggest, webhooks
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("awing.backend")
@@ -69,5 +69,7 @@ def health():
 app.include_router(stats.router)
 app.include_router(suggest.router)
 app.include_router(leads.router)
+app.include_router(registrations.router)
+app.include_router(search.router)
 app.include_router(auth.router)
 app.include_router(webhooks.router)

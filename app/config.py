@@ -21,6 +21,13 @@ JWT_EXPIRE_HOURS = 24
 
 STRAPI_WEBHOOK_SECRET = os.environ.get("STRAPI_WEBHOOK_SECRET", "")
 
+# BE 8 — cầu revalidate sang Next.js: FastAPI gọi POST /api/revalidate của
+# Frontend với secret chung để xóa tag `strapi:<collection>` khi Strapi
+# publish/unpublish/update. Để trống REVALIDATE_SECRET thì bỏ qua bước này
+# (chỉ còn SSE content-updated); FRONTEND_URL là origin của Next.js.
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+REVALIDATE_SECRET = os.environ.get("REVALIDATE_SECRET", "")
+
 # Vòng lặp realtime: chu kỳ đọc SQLite và đẩy full snapshot (giây).
 # Trễ thông thường ≈ chu kỳ + vài giây xử lý, trong giới hạn 1 phút đã chốt.
 REALTIME_INTERVAL_SECONDS = 30
@@ -61,3 +68,16 @@ OTP_RESEND_COOLDOWN_SECONDS = int(
 LEAD_TOKEN_EXPIRE_MINUTES = int(os.environ.get("LEAD_TOKEN_EXPIRE_MINUTES", "60"))
 # Rate limit tạo lead: số request / phút / IP (chống spam form).
 LEAD_RATE_LIMIT_PER_MINUTE = int(os.environ.get("LEAD_RATE_LIMIT_PER_MINUTE", "5"))
+
+# BE 18-20 — tìm kiếm trên FastAPI (không Meilisearch, theo kiến trúc đã
+# chốt 23/11): URL Strapi để đọc nội dung công khai làm chỉ mục tìm kiếm.
+# Để trống thì /api/search chỉ dùng chỉ mục dự phòng (6 sản phẩm +
+# 26 solution, dữ liệu tĩnh trong code).
+STRAPI_URL = os.environ.get("STRAPI_URL", "").rstrip("/")
+# Thời gian cache chỉ mục tìm kiếm trong bộ nhớ (giây).
+SEARCH_CACHE_TTL_SECONDS = int(os.environ.get("SEARCH_CACHE_TTL_SECONDS", "300"))
+UPLOADS_DIR = os.environ.get("UPLOADS_DIR", "./uploads")
+# Double opt-in newsletter (BE 17): link xác nhận hết hạn sau số ngày này.
+NEWSLETTER_CONFIRM_TTL_DAYS = int(
+    os.environ.get("NEWSLETTER_CONFIRM_TTL_DAYS", "7")
+)

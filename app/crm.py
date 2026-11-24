@@ -34,6 +34,34 @@ def queue_lead_sync(conn, lead_id: int, payload: dict) -> int:
     return cur.lastrowid
 
 
+def queue_outbox(conn, kind: str, ref_id: int, payload: dict) -> int:
+    """Đưa một tác vụ CRM/HR chung vào hàng đợi (BE 15-16). Trả job id."""
+    cur = conn.execute(
+        "INSERT INTO crm_outbox (kind, ref_id, payload) VALUES (?, ?, ?)",
+        (kind, ref_id, json.dumps(payload, ensure_ascii=False)),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def _send_to_outbox(kind: str, payload: dict) -> None:
+    # GIẢ LẬP (chưa chốt CRM/HR): ghi log = đã "đẩy".
+    if kind == "event_registration":
+        logger.info(
+            "[FAKE CRM] đăng ký sự kiện #%s đã đẩy sang CRM: %s",
+            payload.get("registration_id"),
+            json.dumps(payload, ensure_ascii=False),
+        )
+    elif kind == "job_application":
+        logger.info(
+            "[FAKE HR] hồ sơ ứng tuyển #%s đã đẩy sang HR: %s",
+            payload.get("application_id"),
+            json.dumps(payload, ensure_ascii=False),
+        )
+    else:
+        logger.info("[FAKE CRM] outbox %s: %s", kind, json.dumps(payload, ensure_ascii=False))
+
+
 def _send_to_crm(payload: dict) -> None:
     # GIẢ LẬP: chưa có CRM thật. Ghi log = đã "đẩy" + báo sales.
     logger.info(
@@ -47,6 +75,30 @@ def _send_to_crm(payload: dict) -> None:
         payload.get("name"),
         payload.get("email"),
         payload.get("company"),
+    )
+
+
+def _mark_failed(conn, table: str, row, exc: Exception) -> None:
+    attempts = row["attempts"] + 1
+    if attempts >= MAX_ATTEMPTS:
+        status = "failed"
+        next_retry = row["next_retry_at"]
+    else:
+        status = "pending"
+        retry_at = datetime.datetime.now(
+            datetime.timezone.utc
+        ) + datetime.timedelta(minutes=2**attempts)
+        # Lưu dạng SQLite datetime('now') (không múi giờ, không 'T') để so
+        # sánh chuỗi với datetime('now') ở WHERE còn đúng — ISO có
+        # 'T'/'+00:00' luôn lớn hơn chuỗi naive nên job retry sẽ không bao
+        # giờ tới hạn.
+        next_retry = retry_at.strftime("%Y-%m-%d %H:%M:%S")
+    logger.warning("CRM job #%s lỗi (lần %s): %s", row["id"], attempts, exc)
+    conn.execute(
+        f"UPDATE {table} SET status = ?, attempts = ?, "
+        "next_retry_at = ?, last_error = ?, "
+        "updated_at = datetime('now') WHERE id = ?",
+        (status, attempts, next_retry, str(exc), row["id"]),
     )
 
 
@@ -67,29 +119,24 @@ def _process_due_jobs() -> None:
                     (row["id"],),
                 )
             except Exception as exc:  # noqa: BLE001 - job lỗi thì retry
-                attempts = row["attempts"] + 1
-                if attempts >= MAX_ATTEMPTS:
-                    status = "failed"
-                    next_retry = row["next_retry_at"]
-                else:
-                    status = "pending"
-                    retry_at = datetime.datetime.now(
-                        datetime.timezone.utc
-                    ) + datetime.timedelta(minutes=2**attempts)
-                    # Lưu dạng SQLite datetime('now') (không múi giờ, không
-                    # 'T') để so sánh chuỗi với datetime('now') ở WHERE
-                    # còn đúng — ISO có 'T'/'+00:00' luôn lớn hơn chuỗi
-                    # naive nên job retry sẽ không bao giờ tới hạn.
-                    next_retry = retry_at.strftime("%Y-%m-%d %H:%M:%S")
-                logger.warning(
-                    "CRM job #%s lỗi (lần %s): %s", row["id"], attempts, exc
-                )
+                _mark_failed(conn, "crm_jobs", row, exc)
+            conn.commit()
+        # Hàng đợi chung BE 15-16 (đăng ký sự kiện, nộp CV) — cùng luật retry.
+        outbox = conn.execute(
+            "SELECT * FROM crm_outbox WHERE status = 'pending' "
+            "AND next_retry_at <= datetime('now') ORDER BY id LIMIT 20"
+        ).fetchall()
+        for row in outbox:
+            try:
+                payload = json.loads(row["payload"])
+                _send_to_outbox(row["kind"], payload)
                 conn.execute(
-                    "UPDATE crm_jobs SET status = ?, attempts = ?, "
-                    "next_retry_at = ?, last_error = ?, "
+                    "UPDATE crm_outbox SET status = 'sent', "
                     "updated_at = datetime('now') WHERE id = ?",
-                    (status, attempts, next_retry, str(exc), row["id"]),
+                    (row["id"],),
                 )
+            except Exception as exc:  # noqa: BLE001 - job lỗi thì retry
+                _mark_failed(conn, "crm_outbox", row, exc)
             conn.commit()
     finally:
         conn.close()

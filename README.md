@@ -42,12 +42,16 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 | `POST` | `/api/leads/{id}/verify` | Xác thực OTP 6 số (hiệu lực 10 phút, tối đa 5 lần sai) → `{ verified, leadToken }` (JWT lead 60 phút). Mã sai → 400 `OTP_WRONG` kèm `details.attemptsLeft`; hết hạn → 400 `OTP_EXPIRED`; sai quá 5 lần → 429 `OTP_LOCKED`. Chỉ lead đã xác thực mới vào hàng đợi CRM. |
 | `POST` | `/api/leads/{id}/resend` | Gửi lại OTP: cooldown 60s (`429 RESEND_COOLDOWN` kèm `retryAfter`), tối đa 5 mã/ngày (`429 RESEND_LIMIT`). |
 | `PATCH` | `/api/leads/{id}` | Bổ sung hồ sơ sau xác thực (FE 21): cần `Authorization: Bearer <leadToken>` khớp leadId, chỉ cập nhật trường gửi lên. |
-| `POST` | `/api/newsletter` | Đăng ký nhận tin ở footer → 202; email trùng vẫn 202 (không lộ đã đăng ký). Double opt-in ở BE 17 (R1-4). |
+| `GET` | `/api/search?q=...&locale=vi\|en\|all&market=vn\|all&type=...&page=&pageSize=` | Tìm kiếm (BE 18-20, không Meilisearch): đọc nội dung công khai từ Strapi (cache 5 phút), khớp không dấu, lọc locale/market, đếm facet theo loại. Trả `{ results, facets, total, page, pageSize, source }`; `source=fallback` khi Strapi không tới được (chỉ có 6 sản phẩm + 26 solution). `type` sai → 400 `SEARCH_TYPE_INVALID`. |
+| `POST` | `/api/newsletter` | Đăng ký nhận tin ở footer → 202 `{ subscribed, confirmed }`; double opt-in (BE 17): email mới/đang chờ nhận link xác nhận (token hash, hết hạn 7 ngày), đã xác nhận rồi thì không gửi lại. |
+| `GET` | `/api/newsletter/confirm?token=...` | Xác nhận double opt-in (BE 17) → `{ confirmed, email }`; token sai/hết hạn → 400 `TOKEN_INVALID`/`TOKEN_EXPIRED`; link dùng 1 lần. |
+| `POST` | `/api/events/{slug}/register` | Đăng ký sự kiện (BE 15): body `{ name, email, phone?, eventTitle?, startDate?, endDate?, locale?, consent }` → 201 `{ registrationId, registered, duplicate }`; trùng email+sự kiện trong 24h → `duplicate: true`; thiếu consent → 400 `CONSENT_REQUIRED`; gửi email xác nhận kèm file .ics (khi có ngày giờ), đẩy CRM qua hàng đợi `crm_outbox`. |
+| `POST` | `/api/jobs/{slug}/apply` | Nộp CV (BE 16, multipart): `name, email, phone?, coverNote?, consent=true, file` (PDF/DOCX ≤ 5 MB, kiểm tra magic bytes) → 201 `{ applicationId, received }`; sai loại/quá 5 MB/thiếu consent → 400; file lưu ở `UPLOADS_DIR/cv/` (tên UUID), quét virus GIẢ LẬP (ghi log, chưa có ClamAV), đẩy HR qua `crm_outbox`. |
 | `POST` | `/api/contact` | Form Contact Us (F15). |
 | `GET` | `/api/events/stats` | SSE: full snapshot số liệu mỗi 30 giây (realtime, trễ tối đa 1 phút). |
 | `GET` | `/api/auth/google` | Bắt đầu đăng nhập Google (F13). |
 | `GET` | `/api/auth/google/callback` | Callback Google, phát JWT 24h, chuyển về Frontend. |
-| `POST` | `/api/webhooks/strapi` | Nhận webhook publish từ Strapi, đẩy sự kiện `content-updated` qua SSE. |
+| `POST` | `/api/webhooks/strapi` | Nhận webhook publish từ Strapi, đẩy sự kiện `content-updated` qua SSE + gọi `POST /api/revalidate` của Frontend để xóa tag `strapi:<collection>` (BE 8; cần `FRONTEND_URL` + `REVALIDATE_SECRET` trùng với Frontend, thiếu secret thì bỏ qua bước revalidate). |
 
 Định dạng lỗi thống nhất: `{"error": {"code": "...", "message": "..."}}` (+ `details` tùy endpoint, vd. OTP sai kèm `attemptsLeft`).
 
@@ -84,6 +88,33 @@ bổ sung hồ sơ bị chặn — đã thêm. `FRONTEND_ORIGIN` chấp nhận n
 origin, phân tách bằng dấu phẩy (vd. `http://localhost:3100,http://127.0.0.1:3100`).
 
 Case study lấy qua Strapi REST, không qua backend này.
+
+## Hạ tầng & vận hành (BE 21-24 — R1: đã có trong code + bước triển khai)
+
+Đã có trong code (không cần hạ tầng ngoài):
+
+- **API security (BE 24):** rate limit lead 5/phút/IP + OTP (tối đa 5 lần
+  sai, cooldown 60s, tối đa 5 mã/ngày); CORS giới hạn theo
+  `FRONTEND_ORIGIN` + `allow_private_network` cho preflight nội bộ;
+  secret qua biến môi trường (không hardcode); lỗi thống nhất
+  `{"error": {"code", "message"}}`; JWT 24h cho Google SSO.
+- **Môi trường (BE 21):** Frontend có `Dockerfile` (standalone) +
+  `docker-compose.dev.yml`; backend FastAPI chạy trên host bằng Uvicorn
+  (theo lựa chọn của tran — không có Dockerfile cho BE, không đưa BE vào
+  Compose); Strapi chạy trong Compose (Postgres). Biến môi trường runtime
+  xem `.env.example` của từng repo.
+- **Database (BE 22):** SQLite duy nhất cho backend (`DATABASE_PATH`),
+  tạo bảng + migrate idempotent ở `app/db.py` khi khởi động; Strapi dùng
+  Postgres trong Compose. Backup = copy file SQLite + dump Postgres
+  (chưa có lịch tự động).
+
+Bước triển khai (chưa làm — cần quyết định khi lên production):
+
+- **CI/CD (BE 21):** pipeline lint/type-check/build cho FE + BE, preview
+  deploy cho mỗi PR (chưa có).
+- **Giám sát (BE 23):** Sentry (chưa gắn DSN), uptime check, log tập
+  trung (hiện log ra stdout của từng tiến trình).
+- **Backup (BE 22):** lịch backup định kỳ + kiểm tra khôi phục (chưa có).
 
 ## Nhập dữ liệu thử nghiệm
 
