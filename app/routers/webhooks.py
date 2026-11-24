@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 
 from .. import config, db
 from ..realtime import broadcaster
+from ..revalidate import revalidate_frontend, tag_for_model
 from ..schemas import StrapiWebhookPayload
 
 router = APIRouter()
@@ -46,4 +47,8 @@ async def strapi_webhook(request: Request, conn: sqlite3.Connection = Depends(db
     )
     conn.commit()
     broadcaster.broadcast_content_updated(payload.event, payload.model)
+    # BE 8: xóa tag cache của Frontend để nội dung mới hiện ngay (không đợi ISR).
+    tag = tag_for_model(payload.model)
+    if tag:
+        revalidate_frontend(tag)
     return {"ok": True}

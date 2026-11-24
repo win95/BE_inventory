@@ -94,7 +94,71 @@ CREATE TABLE IF NOT EXISTS leads (
     name TEXT NOT NULL,
     email TEXT NOT NULL,
     phone TEXT NOT NULL,
-    message TEXT NOT NULL,
+    message TEXT,
+    -- R1-2 (BE 11, LEAD-01): trường bắt buộc/tùy chọn + ẩn của lead form mới.
+    company TEXT NOT NULL DEFAULT '',
+    industry TEXT,
+    brand TEXT,
+    regions TEXT,  -- JSON: ["TP.HCM", "Hà Nội", ...]
+    notes TEXT,
+    consent_contact INTEGER NOT NULL DEFAULT 0,
+    consent_marketing INTEGER NOT NULL DEFAULT 0,
+    language TEXT NOT NULL DEFAULT 'vi',
+    market TEXT NOT NULL DEFAULT 'vn',
+    source TEXT,
+    utm TEXT,  -- JSON: {"utm_source": ..., ...}
+    turnstile_checked INTEGER NOT NULL DEFAULT 0,
+    verified INTEGER NOT NULL DEFAULT 0,
+    verified_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- OTP xác thực email (BE 12): mã chỉ lưu dạng hash, không lưu mã gốc.
+CREATE TABLE IF NOT EXISTS lead_otps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER NOT NULL REFERENCES leads (id),
+    code_hash TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    used INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Nhật ký đồng ý theo mục đích (BE 11, Docs §6.2/§10): mỗi lần lead đồng
+-- ý / rút lại đều ghi một dòng — pháp chế duyệt form trước phát hành.
+CREATE TABLE IF NOT EXISTS lead_consents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER NOT NULL REFERENCES leads (id),
+    purpose TEXT NOT NULL,  -- 'contact' | 'marketing'
+    granted INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Hàng đợi đẩy CRM (BE 14): tác vụ nền trong tiến trình FastAPI xử lý dần,
+-- retry theo cấp số nhân, tối đa 5 lần rồi đánh failed để xem lại tay.
+CREATE TABLE IF NOT EXISTS crm_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER NOT NULL REFERENCES leads (id),
+    status TEXT NOT NULL DEFAULT 'pending',  -- pending | sent | failed
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_retry_at TEXT NOT NULL DEFAULT (datetime('now')),
+    payload TEXT NOT NULL,  -- JSON: dữ liệu lead đẩy sang CRM
+    last_error TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Đăng ký nhận tin ở footer (FE 18). Double opt-in ở BE 17 (R1-4) — hiện
+-- chỉ lưu email, trạng thái pending cho tới khi xác nhận.
+CREATE TABLE IF NOT EXISTS newsletter_subscribers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    locale TEXT NOT NULL DEFAULT 'vi',
+    status TEXT NOT NULL DEFAULT 'pending',  -- pending | confirmed
+    -- BE 17 double opt-in: token xác nhận chỉ lưu dạng hash.
+    confirm_token_hash TEXT,
+    confirm_token_created_at TEXT,
+    confirmed_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -106,6 +170,55 @@ CREATE TABLE IF NOT EXISTS contact_messages (
     phone TEXT NOT NULL,
     message TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Đăng ký sự kiện (BE 15): sự kiện nằm ở Strapi, chỉ lưu đăng ký ở đây.
+-- event_slug là slug Strapi; event_title/start/end do FE gửi kèm để làm
+-- email xác nhận + file .ics (backend không tự gọi Strapi để lấy lịch).
+CREATE TABLE IF NOT EXISTS event_registrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_slug TEXT NOT NULL,
+    event_title TEXT,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    phone TEXT,
+    consent INTEGER NOT NULL DEFAULT 0,
+    locale TEXT NOT NULL DEFAULT 'vi',
+    start_date TEXT,
+    end_date TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Nộp CV (BE 16): file lưu ở thư mục uploads (xem config.UPLOADS_DIR),
+-- DB chỉ giữ đường dẫn + tên gốc. Quét virus: GIẢ LẬP ở R1 (ghi log),
+-- ClamAV thật chờ hạ tầng.
+CREATE TABLE IF NOT EXISTS job_applications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_slug TEXT NOT NULL,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    phone TEXT,
+    cover_note TEXT,
+    file_path TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    file_size INTEGER NOT NULL,
+    consent INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Hàng đợi chung cho CRM/HR (BE 15-16): kind = 'event_registration' |
+-- 'job_application'. Worker CRM xử lý cùng vòng lặp với crm_jobs (BE 14).
+CREATE TABLE IF NOT EXISTS crm_outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    ref_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',  -- pending | sent | failed
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_retry_at TEXT NOT NULL DEFAULT (datetime('now')),
+    payload TEXT NOT NULL,  -- JSON
+    last_error TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS users (
@@ -204,6 +317,46 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # ad_formats: mô tả hiển thị trên thẻ format (Figma Advertisers).
     if "description" not in _columns(conn, "ad_formats"):
         conn.execute("ALTER TABLE ad_formats ADD COLUMN description TEXT")
+    # leads: cột mới của lead form R1-2 (BE 11). Database cũ (message bắt
+    # buộc) vẫn giữ message cũ; cột company có DEFAULT '' nên không vỡ.
+    lead_cols = {
+        "company": "TEXT NOT NULL DEFAULT ''",
+        "industry": "TEXT",
+        "brand": "TEXT",
+        "regions": "TEXT",
+        "notes": "TEXT",
+        "consent_contact": "INTEGER NOT NULL DEFAULT 0",
+        "consent_marketing": "INTEGER NOT NULL DEFAULT 0",
+        "language": "TEXT NOT NULL DEFAULT 'vi'",
+        "market": "TEXT NOT NULL DEFAULT 'vn'",
+        "source": "TEXT",
+        "utm": "TEXT",
+        "turnstile_checked": "INTEGER NOT NULL DEFAULT 0",
+        "verified": "INTEGER NOT NULL DEFAULT 0",
+        "verified_at": "TEXT",
+    }
+    existing = _columns(conn, "leads")
+    for col, ddl in lead_cols.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE leads ADD COLUMN {col} {ddl}")
+    if "message" in existing:
+        # message ở DB cũ là NOT NULL không DEFAULT — router mới luôn INSERT
+        # kèm message ("" khi không có) nên không vỡ ràng buộc này; DB mới
+        # tạo thẳng message NULL được.
+        pass
+    # newsletter_subscribers: double opt-in (BE 17) — token xác nhận chỉ
+    # lưu dạng hash, kèm thời điểm tạo token để hết hạn sau 7 ngày.
+    sub_cols = {
+        "confirm_token_hash": "TEXT",
+        "confirm_token_created_at": "TEXT",
+        "confirmed_at": "TEXT",
+    }
+    existing_sub = _columns(conn, "newsletter_subscribers")
+    for col, ddl in sub_cols.items():
+        if col not in existing_sub:
+            conn.execute(
+                f"ALTER TABLE newsletter_subscribers ADD COLUMN {col} {ddl}"
+            )
 
 
 def init_db() -> None:

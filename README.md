@@ -38,16 +38,83 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 | `GET` | `/api/network-stats` | Số liệu mạng lưới (F03). |
 | `GET` | `/api/coverage` | Phủ sóng theo tỉnh, loại venue, thư mục địa điểm, số liệu ngành (F04, F17). Hỗ trợ `?locale=vi|en` (mặc định vi): `provinces[].province` giữ nguyên tên tiếng Anh làm khóa ổn định (Frontend khớp lưới heatmap bằng trường này), `displayName` là tên theo locale; `cities[].short` là nhãn ngắn cho trục X biểu đồ. |
 | `POST` | `/api/suggest` | Gợi ý chiến dịch theo prompt, body `{ prompt, page?, pageSize?, locale? }` (F02, F06). `locale` vi/en (mặc định vi) dịch tên thành phố trong kết quả; việc khớp prompt vẫn dùng tên gốc trong DB nên prompt tiếng Anh vẫn khớp. `cities` trả tất cả 8 dòng `city_stats` (kể cả Vũng Tàu/Huế chưa có số liệu), mỗi thành phố có `monthlyEngagements` (triệu) dùng cho số trên chip + tổng Potential Engagements; `formats` trả 4 định dạng theo đúng thứ tự CSV, có `description` và nhãn metric `Engagement`. |
-| `POST` | `/api/leads` | Lead form (F12). |
+| `POST` | `/api/leads` | Lead form R1-2 (LEAD-01): body `{ name, email, phone (E.164), company, industry?, brand?, regions?, notes?, consentContact, consentMarketing?, turnstileToken?, utm?, source?, language?, market? }` → `201 { leadId, otpSent }`. Rate limit 5/phút/IP; email chưa xác thực trong 10 phút thì dùng lại lead cũ; SĐT sai định dạng E.164 → 422. |
+| `POST` | `/api/leads/{id}/verify` | Xác thực OTP 6 số (hiệu lực 10 phút, tối đa 5 lần sai) → `{ verified, leadToken }` (JWT lead 60 phút). Mã sai → 400 `OTP_WRONG` kèm `details.attemptsLeft`; hết hạn → 400 `OTP_EXPIRED`; sai quá 5 lần → 429 `OTP_LOCKED`. Chỉ lead đã xác thực mới vào hàng đợi CRM. |
+| `POST` | `/api/leads/{id}/resend` | Gửi lại OTP: cooldown 60s (`429 RESEND_COOLDOWN` kèm `retryAfter`), tối đa 5 mã/ngày (`429 RESEND_LIMIT`). |
+| `PATCH` | `/api/leads/{id}` | Bổ sung hồ sơ sau xác thực (FE 21): cần `Authorization: Bearer <leadToken>` khớp leadId, chỉ cập nhật trường gửi lên. |
+| `GET` | `/api/search?q=...&locale=vi\|en\|all&market=vn\|all&type=...&page=&pageSize=` | Tìm kiếm (BE 18-20, không Meilisearch): đọc nội dung công khai từ Strapi (cache 5 phút), khớp không dấu, lọc locale/market, đếm facet theo loại. Trả `{ results, facets, total, page, pageSize, source }`; `source=fallback` khi Strapi không tới được (chỉ có 6 sản phẩm + 26 solution). `type` sai → 400 `SEARCH_TYPE_INVALID`. |
+| `POST` | `/api/newsletter` | Đăng ký nhận tin ở footer → 202 `{ subscribed, confirmed }`; double opt-in (BE 17): email mới/đang chờ nhận link xác nhận (token hash, hết hạn 7 ngày), đã xác nhận rồi thì không gửi lại. |
+| `GET` | `/api/newsletter/confirm?token=...` | Xác nhận double opt-in (BE 17) → `{ confirmed, email }`; token sai/hết hạn → 400 `TOKEN_INVALID`/`TOKEN_EXPIRED`; link dùng 1 lần. |
+| `POST` | `/api/events/{slug}/register` | Đăng ký sự kiện (BE 15): body `{ name, email, phone?, eventTitle?, startDate?, endDate?, locale?, consent }` → 201 `{ registrationId, registered, duplicate }`; trùng email+sự kiện trong 24h → `duplicate: true`; thiếu consent → 400 `CONSENT_REQUIRED`; gửi email xác nhận kèm file .ics (khi có ngày giờ), đẩy CRM qua hàng đợi `crm_outbox`. |
+| `POST` | `/api/jobs/{slug}/apply` | Nộp CV (BE 16, multipart): `name, email, phone?, coverNote?, consent=true, file` (PDF/DOCX ≤ 5 MB, kiểm tra magic bytes) → 201 `{ applicationId, received }`; sai loại/quá 5 MB/thiếu consent → 400; file lưu ở `UPLOADS_DIR/cv/` (tên UUID), quét virus GIẢ LẬP (ghi log, chưa có ClamAV), đẩy HR qua `crm_outbox`. |
 | `POST` | `/api/contact` | Form Contact Us (F15). |
 | `GET` | `/api/events/stats` | SSE: full snapshot số liệu mỗi 30 giây (realtime, trễ tối đa 1 phút). |
 | `GET` | `/api/auth/google` | Bắt đầu đăng nhập Google (F13). |
 | `GET` | `/api/auth/google/callback` | Callback Google, phát JWT 24h, chuyển về Frontend. |
-| `POST` | `/api/webhooks/strapi` | Nhận webhook publish từ Strapi, đẩy sự kiện `content-updated` qua SSE. |
+| `POST` | `/api/webhooks/strapi` | Nhận webhook publish từ Strapi, đẩy sự kiện `content-updated` qua SSE + gọi `POST /api/revalidate` của Frontend để xóa tag `strapi:<collection>` (BE 8; cần `FRONTEND_URL` + `REVALIDATE_SECRET` trùng với Frontend, thiếu secret thì bỏ qua bước revalidate). |
 
-Định dạng lỗi thống nhất: `{"error": {"code": "...", "message": "..."}}`.
+Định dạng lỗi thống nhất: `{"error": {"code": "...", "message": "..."}}` (+ `details` tùy endpoint, vd. OTP sai kèm `attemptsLeft`).
+
+## Lead + OTP + CRM giả lập (R1-2, BE 11-14)
+
+Theo quyết định fake API/data của tran (23/11/2026, cho R1): chưa chốt CRM
+(quyết định #1), nhà cung cấp email và Turnstile (quyết định #4) nên 3
+luồng chạy ở chế độ giả lập — code thật, tích hợp thật thay vào sau mà
+không đổi API:
+
+- **OTP/email** (`app/otp.py`, `app/email.py`): mã 6 số chỉ lưu dạng
+  SHA-256 (không lưu mã gốc, không log mã ngoài log email giả lập);
+  `EMAIL_PROVIDER=fake` (mặc định) thì "gửi" = ghi log đầy đủ nội dung
+  email. Kiểm thử end-to-end thì đọc mã từ log backend.
+- **Turnstile** (`app/turnstile.py`): chưa có `TURNSTILE_SECRET` thì chấp
+  nhận mọi token (kể cả null) và ghi log; có secret thì gọi siteverify
+  thật, token sai bị từ chối. Frontend load widget thật khi có
+  `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, chưa có thì hiện "mô phỏng".
+- **CRM** (`app/crm.py`, `crm_jobs`): lead đã xác thực mới vào hàng đợi;
+  worker trong tiến trình chạy mỗi 30s, "đẩy" = ghi log payload + thông
+  báo sales, retry cấp số nhân tối đa 5 lần rồi đánh `failed`.
+
+Biến môi trường mới (xem `.env.example`): `TURNSTILE_SECRET`,
+`EMAIL_PROVIDER` (fake), `EMAIL_FROM`, `OTP_TTL_MINUTES` (10),
+`OTP_MAX_ATTEMPTS` (5), `OTP_RESEND_COOLDOWN_SECONDS` (60),
+`LEAD_TOKEN_EXPIRE_MINUTES` (60), `LEAD_RATE_LIMIT_PER_MINUTE` (5).
+
+**CORS — 2 lỗi đã sửa 23/11/2026:** (1) Chrome gửi preflight kèm
+`Access-Control-Request-Private-Network` khi trang ở 127.0.0.1 gọi API ở
+cổng khác — Starlette trả 400 nếu thiếu `allow_private_network=True`
+(đã bật trong `app/main.py`; lỗi này làm form lead không gửi được từ
+trình duyệt dù curl vẫn 200). (2) `allow_methods` thiếu `PATCH` nên
+bổ sung hồ sơ bị chặn — đã thêm. `FRONTEND_ORIGIN` chấp nhận nhiều
+origin, phân tách bằng dấu phẩy (vd. `http://localhost:3100,http://127.0.0.1:3100`).
 
 Case study lấy qua Strapi REST, không qua backend này.
+
+## Hạ tầng & vận hành (BE 21-24 — R1: đã có trong code + bước triển khai)
+
+Đã có trong code (không cần hạ tầng ngoài):
+
+- **API security (BE 24):** rate limit lead 5/phút/IP + OTP (tối đa 5 lần
+  sai, cooldown 60s, tối đa 5 mã/ngày); CORS giới hạn theo
+  `FRONTEND_ORIGIN` + `allow_private_network` cho preflight nội bộ;
+  secret qua biến môi trường (không hardcode); lỗi thống nhất
+  `{"error": {"code", "message"}}`; JWT 24h cho Google SSO.
+- **Môi trường (BE 21):** Frontend có `Dockerfile` (standalone) +
+  `docker-compose.dev.yml`; backend FastAPI chạy trên host bằng Uvicorn
+  (theo lựa chọn của tran — không có Dockerfile cho BE, không đưa BE vào
+  Compose); Strapi chạy trong Compose (Postgres). Biến môi trường runtime
+  xem `.env.example` của từng repo.
+- **Database (BE 22):** SQLite duy nhất cho backend (`DATABASE_PATH`),
+  tạo bảng + migrate idempotent ở `app/db.py` khi khởi động; Strapi dùng
+  Postgres trong Compose. Backup = copy file SQLite + dump Postgres
+  (chưa có lịch tự động).
+
+Bước triển khai (chưa làm — cần quyết định khi lên production):
+
+- **CI/CD (BE 21):** pipeline lint/type-check/build cho FE + BE, preview
+  deploy cho mỗi PR (chưa có).
+- **Giám sát (BE 23):** Sentry (chưa gắn DSN), uptime check, log tập
+  trung (hiện log ra stdout của từng tiến trình).
+- **Backup (BE 22):** lịch backup định kỳ + kiểm tra khôi phục (chưa có).
 
 ## Nhập dữ liệu thử nghiệm
 
