@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
     if not config.STRAPI_WEBHOOK_SECRET:
         logger.warning(
             "STRAPI_WEBHOOK_SECRET trống — webhook Strapi chấp nhận mọi POST "
-            "không chữ ký (chỉ dùng khi thử local)."
+            "không có Authorization Bearer (chỉ dùng khi thử local)."
         )
     broadcaster.start()
     crm.crm_worker.start()

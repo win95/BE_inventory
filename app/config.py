@@ -2,6 +2,13 @@
 
 import logging
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Tự nạp BE_inventory/.env khi chạy local (không cần --env-file). Biến đã có
+# trong môi trường (Docker, shell export) được ưu tiên, không bị ghi đè.
+load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
 
 logger = logging.getLogger("awing.backend.config")
 

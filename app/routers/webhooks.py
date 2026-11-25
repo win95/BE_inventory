@@ -24,15 +24,16 @@ router = APIRouter()
 @router.post("/api/webhooks/strapi")
 async def strapi_webhook(request: Request, conn: sqlite3.Connection = Depends(db.get_conn)):
     raw = await request.body()
+    # Strapi chỉ gửi được header tĩnh (không ký HMAC theo body), nên xác thực
+    # bằng `Authorization: Bearer <STRAPI_WEBHOOK_SECRET>` — cms/src/index.ts
+    # gắn header này khi đăng ký webhook 'awing-backend'.
     if config.STRAPI_WEBHOOK_SECRET:
-        signature = request.headers.get("x-strapi-signature", "")
-        expected = hmac.new(
-            config.STRAPI_WEBHOOK_SECRET.encode(), raw, "sha256"
-        ).hexdigest()
-        if not hmac.compare_digest(signature, expected):
+        expected = f"Bearer {config.STRAPI_WEBHOOK_SECRET}"
+        provided = request.headers.get("authorization", "")
+        if not hmac.compare_digest(provided.encode(), expected.encode()):
             return JSONResponse(
                 status_code=401,
-                content={"error": {"code": "WEBHOOK_UNAUTHORIZED", "message": "Chữ ký webhook không hợp lệ."}},
+                content={"error": {"code": "WEBHOOK_UNAUTHORIZED", "message": "Xác thực webhook không hợp lệ."}},
             )
     try:
         payload = StrapiWebhookPayload(**json.loads(raw or b"{}"))
