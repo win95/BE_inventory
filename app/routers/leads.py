@@ -4,7 +4,7 @@ POST /api/leads — lead form mới: validate E.164 + email (Pydantic),
 xác minh Turnstile (giả lập khi chưa có secret), lưu lead + UTM + nhật ký
 đồng ý theo mục đích, tạo OTP và gửi email giả lập (ghi log), chống trùng
 (email chưa xác thực trong 10 phút thì dùng lại lead cũ thay vì tạo mới),
-rate limit 5/phút/IP.
+rate limit 5/phút/email.
 POST /api/leads/{id}/verify — xác thực OTP, cấp lead token (JWT 60 phút),
 đẩy lead vào hàng đợi CRM (chỉ lead ĐÃ xác thực mới vào CRM).
 POST /api/leads/{id}/resend — gửi lại OTP (cooldown 60s, tối đa 5 mã/ngày).
@@ -17,6 +17,7 @@ xác nhận qua GET /api/newsletter/confirm?token=...
 
 import datetime
 import json
+import logging
 import sqlite3
 import time
 
@@ -24,7 +25,7 @@ import jwt
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
-from .. import config, crm, db, email, otp, turnstile
+from .. import config, crm, db, email, otp, rate_limit, turnstile
 from ..schemas import (
     ContactPayload,
     LeadPayload,
@@ -32,6 +33,8 @@ from ..schemas import (
     NewsletterPayload,
     OtpVerifyPayload,
 )
+
+logger = logging.getLogger("awing.backend.leads")
 
 router = APIRouter()
 
@@ -48,23 +51,6 @@ def _error(status: int, code: str, message: str, details: dict | None = None):
     if details is not None:
         body["details"] = details
     return JSONResponse(status_code=status, content={"error": body})
-
-
-def _rate_limited(ip: str) -> bool:
-    now = time.monotonic()
-    bucket = [t for t in _rate_buckets.get(ip, []) if now - t < 60]
-    if len(bucket) >= config.LEAD_RATE_LIMIT_PER_MINUTE:
-        _rate_buckets[ip] = bucket
-        return True
-    bucket.append(now)
-    _rate_buckets[ip] = bucket
-    return False
-
-
-def _client_ip(request: Request) -> str:
-    if request.client is None:
-        return "unknown"
-    return request.client.host or "unknown"
 
 
 def _log_consents(conn, lead_id: int, contact: bool, marketing: bool) -> None:
@@ -110,10 +96,14 @@ def post_lead(
     request: Request,
     conn: sqlite3.Connection = Depends(db.get_conn),
 ):
-    if _rate_limited(_client_ip(request)):
+    # Giới hạn theo email (xem app/rate_limit.py): sau BFF mọi request đều
+    # qua proxy Next.js nên giới hạn theo IP thành giới hạn chung toàn site.
+    if rate_limit.limited(
+        rate_limit.email_key(payload.email), config.LEAD_RATE_LIMIT_PER_MINUTE
+    ):
         return _error(429, "RATE_LIMITED", "Gửi quá nhanh, thử lại sau 1 phút.")
     turnstile_ok = turnstile.verify_turnstile_token(
-        payload.turnstileToken, _client_ip(request)
+        payload.turnstileToken, rate_limit.client_ip(request)
     )
     if not turnstile_ok:
         return _error(400, "TURNSTILE_FAILED", "Xác minh chống spam không thành công.")
@@ -197,8 +187,13 @@ def verify_lead(
     lead = _lead_row(conn, lead_id)
     if lead is None:
         return _error(404, "LEAD_NOT_FOUND", "Không tìm thấy lead này.")
-    if lead["verified"]:
-        return {"verified": True, "leadToken": _issue_lead_token(lead_id)}
+    # Không có đường tắt cho lead đã xác thực: cấp token mới vẫn phải qua
+    # OTP hợp lệ (mã gửi tới email của lead). Trước đây nhánh verified
+    # trả token ngay không cần mã — lead ID tăng dần đoán được nên bất kỳ
+    # ai cũng lấy được token của lead đã xác thực khác rồi PATCH hồ sơ
+    # của họ. Lead đã xác thực mà mất token thì dùng /resend để nhận mã
+    # mới (resend cho phép lead đã xác thực) rồi verify lại như thường.
+    was_verified = bool(lead["verified"])
     status, attempts_left = otp.verify_otp(conn, lead_id, payload.code)
     if status == "wrong":
         return _error(
@@ -215,31 +210,39 @@ def verify_lead(
         return _error(
             429, "OTP_LOCKED", "Nhập sai quá nhiều lần. Gửi lại mã mới."
         )
-    conn.execute(
-        "UPDATE leads SET verified = 1, verified_at = datetime('now') WHERE id = ?",
-        (lead_id,),
-    )
-    conn.commit()
-    # Chỉ lead đã xác thực mới vào CRM (BE 14).
-    crm.queue_lead_sync(
-        conn,
-        lead_id,
-        {
-            "lead_id": lead_id,
-            "name": lead["name"],
-            "email": lead["email"],
-            "phone": lead["phone"],
-            "company": lead["company"],
-            "industry": lead["industry"],
-            "brand": lead["brand"],
-            "regions": json.loads(lead["regions"] or "[]"),
-            "notes": lead["notes"],
-            "language": lead["language"],
-            "market": lead["market"],
-            "source": lead["source"],
-            "utm": json.loads(lead["utm"] or "{}"),
-        },
-    )
+    # Chỉ ghi nhận xác thực + đưa vào CRM ở lần chuyển từ chưa xác thực
+    # sang đã xác thực. Lead đã xác thực verify lại (để cấp token mới)
+    # thì không ghi CRM lần nữa.
+    if not was_verified:
+        conn.execute(
+            "UPDATE leads SET verified = 1, verified_at = datetime('now') WHERE id = ?",
+            (lead_id,),
+        )
+        conn.commit()
+        # Chỉ lead đã xác thực mới vào CRM (BE 14). Đẩy vào hàng đợi lỗi
+        # thì chỉ ghi log — lead đã xác thực rồi, không được trả 500 giả.
+        try:
+            crm.queue_lead_sync(
+                conn,
+                lead_id,
+                {
+                    "lead_id": lead_id,
+                    "name": lead["name"],
+                    "email": lead["email"],
+                    "phone": lead["phone"],
+                    "company": lead["company"],
+                    "industry": lead["industry"],
+                    "brand": lead["brand"],
+                    "regions": json.loads(lead["regions"] or "[]"),
+                    "notes": lead["notes"],
+                    "language": lead["language"],
+                    "market": lead["market"],
+                    "source": lead["source"],
+                    "utm": json.loads(lead["utm"] or "{}"),
+                },
+            )
+        except Exception:
+            logger.exception("Không đẩy được lead %s vào hàng đợi CRM", lead_id)
     return {"verified": True, "leadToken": _issue_lead_token(lead_id)}
 
 
@@ -251,8 +254,9 @@ def resend_lead_otp(
     lead = _lead_row(conn, lead_id)
     if lead is None:
         return _error(404, "LEAD_NOT_FOUND", "Không tìm thấy lead này.")
-    if lead["verified"]:
-        return _error(400, "LEAD_ALREADY_VERIFIED", "Email này đã được xác thực.")
+    # Lead đã xác thực vẫn được gửi mã mới: đó là cách duy nhất để cấp
+    # lại token khi token cũ hết hạn (verify luôn yêu cầu OTP hợp lệ).
+    # Cooldown 60s + tối đa 5 mã/ngày vẫn áp dụng như lead chưa xác thực.
     last = otp.last_otp_created_at(conn, lead_id)
     if last is not None:
         elapsed = (
@@ -316,7 +320,15 @@ def patch_lead(
 
 
 @router.post("/api/contact", status_code=201)
-def post_contact(payload: ContactPayload, conn: sqlite3.Connection = Depends(db.get_conn)):
+def post_contact(
+    payload: ContactPayload,
+    request: Request,
+    conn: sqlite3.Connection = Depends(db.get_conn),
+):
+    if rate_limit.limited(
+        rate_limit.email_key(payload.email), config.CONTACT_RATE_LIMIT_PER_MINUTE
+    ):
+        return _error(429, "RATE_LIMITED", "Gửi quá nhanh, thử lại sau 1 phút.")
     conn.execute(
         "INSERT INTO contact_messages (type, name, email, phone, message) VALUES (?, ?, ?, ?, ?)",
         (payload.type, payload.name, payload.email, payload.phone, payload.message),
@@ -327,8 +339,14 @@ def post_contact(payload: ContactPayload, conn: sqlite3.Connection = Depends(db.
 
 @router.post("/api/newsletter", status_code=202)
 def post_newsletter(
-    payload: NewsletterPayload, conn: sqlite3.Connection = Depends(db.get_conn)
+    payload: NewsletterPayload,
+    request: Request,
+    conn: sqlite3.Connection = Depends(db.get_conn),
 ):
+    if rate_limit.limited(
+        rate_limit.email_key(payload.email), config.NEWSLETTER_RATE_LIMIT_PER_MINUTE
+    ):
+        return _error(429, "RATE_LIMITED", "Gửi quá nhanh, thử lại sau 1 phút.")
     # BE 17 — double opt-in: email mới / đang chờ đều nhận link xác nhận
     # (token chỉ lưu dạng hash, hết hạn sau 7 ngày); đã xác nhận rồi thì
     # không gửi lại. Xác nhận qua GET /api/newsletter/confirm?token=...

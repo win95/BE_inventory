@@ -156,8 +156,13 @@ def _fallback_items() -> list[dict]:
     for kind, slug, title, summary in _FALLBACK:
         url = f"/products/{slug}" if kind == "products" else ""
         if kind == "solutions":
+            # _FALLBACK_SOLUTIONS là tuple (solution_slug, name,
+            # product_slug): so theo solution_slug (phần tử thứ 1), lấy
+            # product_slug (phần tử thứ 3). Trước đây so nhầm tên hiển thị
+            # (phần tử thứ 2) với slug nên không bao giờ khớp và URL
+            # thành /products//<slug>.
             product = next(
-                (p for p, s, n in _FALLBACK_SOLUTIONS if s == slug), ""
+                (n for p, s, n in _FALLBACK_SOLUTIONS if p == slug), ""
             )
             url = f"/products/{product}/{slug}"
         items.append({

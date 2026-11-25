@@ -7,7 +7,7 @@ biểu đồ theo thành phố) tăng dần thay vì đứng yên.
 
 Cơ chế:
 - Chỉ có MỘT con số cấu hình: số lượt kết nối cộng thêm mỗi chu kỳ
-  (GROWTH_CONNECTIONS_PER_CYCLE, mặc định 100.000). Các số khác tăng theo
+  (GROWTH_CONNECTIONS_PER_CYCLE, mặc định 13). Các số khác tăng theo
   cùng tỉ lệ % so với tổng hiện tại của chúng — tỉ lệ giữa các số (reach
   ≈ 95% connections, engagements ≈ 65%...) được giữ nguyên theo thời gian,
   không lệch nhau.

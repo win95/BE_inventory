@@ -9,6 +9,7 @@ OpenAPI tự sinh tại /docs (schema Pydantic là nguồn sự thật cho kiể
 """
 
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,7 +22,24 @@ from .routers import auth, leads, registrations, search, stats, suggest, webhook
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("awing.backend")
 
-app = FastAPI(title="AWING Backend", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    db.init_db()
+    if not config.STRAPI_WEBHOOK_SECRET:
+        logger.warning(
+            "STRAPI_WEBHOOK_SECRET trống — webhook Strapi chấp nhận mọi POST "
+            "không chữ ký (chỉ dùng khi thử local)."
+        )
+    broadcaster.start()
+    crm.crm_worker.start()
+    logger.info("AWING backend ready — SQLite: %s", config.DATABASE_PATH)
+    yield
+    await broadcaster.stop()
+    await crm.crm_worker.stop()
+
+
+app = FastAPI(title="AWING Backend", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,20 +63,6 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"error": {"code": "INTERNAL_ERROR", "message": "Lỗi hệ thống, thử lại sau."}},
     )
-
-
-@app.on_event("startup")
-def startup() -> None:
-    db.init_db()
-    broadcaster.start()
-    crm.crm_worker.start()
-    logger.info("AWING backend ready — SQLite: %s", config.DATABASE_PATH)
-
-
-@app.on_event("shutdown")
-async def shutdown() -> None:
-    await broadcaster.stop()
-    await crm.crm_worker.stop()
 
 
 @app.get("/")

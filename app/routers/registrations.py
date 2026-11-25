@@ -18,7 +18,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 
-from .. import config, crm, db, email, ics
+from .. import config, crm, db, email, ics, rate_limit
 from ..schemas import EventRegistrationPayload
 
 logger = logging.getLogger("awing.registrations")
@@ -50,10 +50,16 @@ def _fake_virus_scan(path: Path, size: int) -> None:
 def register_event(
     event_slug: str,
     payload: EventRegistrationPayload,
+    request: Request,
     conn: sqlite3.Connection = Depends(db.get_conn),
 ):
     if not _SLUG_RE.match(event_slug):
         return _error(400, "EVENT_NOT_FOUND", "Không tìm thấy sự kiện này.")
+    if rate_limit.limited(
+        rate_limit.email_key(payload.email),
+        config.EVENT_REGISTER_RATE_LIMIT_PER_MINUTE,
+    ):
+        return _error(429, "RATE_LIMITED", "Gửi quá nhanh, thử lại sau 1 phút.")
     if not payload.consent:
         return _error(400, "CONSENT_REQUIRED", "Cần đồng ý xử lý dữ liệu để đăng ký.")
     # Chống trùng: cùng email + sự kiện trong 24h thì trả lại đăng ký cũ.
@@ -137,15 +143,37 @@ async def apply_job(
         return _error(400, "CONSENT_REQUIRED", "Cần đồng ý xử lý dữ liệu để nộp hồ sơ.")
     if not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email_address):
         return _error(422, "INVALID_EMAIL", "Email không hợp lệ.")
+    if rate_limit.limited(
+        rate_limit.email_key(email_address), config.CV_APPLY_RATE_LIMIT_PER_MINUTE
+    ):
+        return _error(429, "RATE_LIMITED", "Gửi quá nhanh, thử lại sau 1 phút.")
     original = file.filename or ""
     ext = Path(original).suffix.lower()
     if ext not in _CV_TYPES:
         return _error(
             400, "FILE_TYPE_INVALID", "Chỉ nhận file PDF hoặc DOCX (≤ 5 MB)."
         )
-    content = await file.read()
-    if len(content) > MAX_CV_BYTES:
-        return _error(400, "FILE_TOO_LARGE", "File vượt quá 5 MB.")
+    # Chống DoS: kiểm tra Content-Length TRƯỚC khi đọc body (multipart gồm
+    # cả field text nên cộng thêm 64 KB dung sai), rồi đọc theo chunk có
+    # chặn trên — không đọc hết file vào RAM rồi mới kiểm tra dung lượng.
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            if int(content_length) > MAX_CV_BYTES + 65_536:
+                return _error(400, "FILE_TOO_LARGE", "File vượt quá 5 MB.")
+        except ValueError:
+            pass
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(64 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > MAX_CV_BYTES:
+            return _error(400, "FILE_TOO_LARGE", "File vượt quá 5 MB.")
+        chunks.append(chunk)
+    content = b"".join(chunks)
     if not content.startswith(_CV_TYPES[ext]):
         return _error(
             400, "FILE_TYPE_INVALID", "Nội dung file không khớp định dạng đã chọn."
@@ -156,23 +184,29 @@ async def apply_job(
     stored_path = upload_dir / stored_name
     stored_path.write_bytes(content)
     _fake_virus_scan(stored_path, len(content))
-    cur = conn.execute(
-        "INSERT INTO job_applications (job_slug, name, email, phone, cover_note, "
-        "file_path, file_name, file_size, consent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            job_slug,
-            name,
-            email_address,
-            phone,
-            cover_note,
-            str(stored_path),
-            original,
-            len(content),
-            1,
-        ),
-    )
-    app_id = cur.lastrowid
-    conn.commit()
+    try:
+        cur = conn.execute(
+            "INSERT INTO job_applications (job_slug, name, email, phone, cover_note, "
+            "file_path, file_name, file_size, consent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                job_slug,
+                name,
+                email_address,
+                phone,
+                cover_note,
+                # Đường dẫn tương đối — không lộ cấu trúc máy trong DB.
+                f"cv/{stored_name}",
+                original,
+                len(content),
+                1,
+            ),
+        )
+        app_id = cur.lastrowid
+        conn.commit()
+    except Exception:
+        # Insert lỗi thì xóa file vừa ghi — không để file mồ côi trên đĩa.
+        stored_path.unlink(missing_ok=True)
+        raise
     email.send_job_application_notice(
         email_address, job_slug=job_slug, name=name, locale=locale
     )
@@ -219,8 +253,10 @@ def confirm_newsletter(
                 tzinfo=timezone.utc
             )
         except ValueError:
-            created_dt = None
-        if created_dt is not None and datetime.now(timezone.utc) - created_dt > timedelta(
+            # Ngày tạo sai định dạng thì coi như hết hạn (fail-closed) —
+            # không bỏ qua kiểm tra hết hạn.
+            return _error(400, "TOKEN_EXPIRED", "Liên kết đã hết hạn. Đăng ký lại để nhận link mới.")
+        if datetime.now(timezone.utc) - created_dt > timedelta(
             days=config.NEWSLETTER_CONFIRM_TTL_DAYS
         ):
             return _error(400, "TOKEN_EXPIRED", "Liên kết đã hết hạn. Đăng ký lại để nhận link mới.")

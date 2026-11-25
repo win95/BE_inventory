@@ -21,17 +21,30 @@ def _parse_iso(value: str) -> datetime.datetime | None:
     year, month, day, hour, minute = (int(m.group(i)) for i in range(1, 6))
     second = int(m.group(6) or 0)
     tz = m.group(7)
-    if tz and tz != "Z":
-        sign = 1 if tz[0] == "+" else -1
-        digits = tz[1:].replace(":", "")
-        offset = datetime.timedelta(hours=int(digits[:2]), minutes=int(digits[2:]))
-        tzinfo = datetime.timezone(sign * offset)
-    else:
-        tzinfo = datetime.timezone.utc
     try:
+        if tz and tz != "Z":
+            sign = 1 if tz[0] == "+" else -1
+            digits = tz[1:].replace(":", "")
+            offset = datetime.timedelta(hours=int(digits[:2]), minutes=int(digits[2:]))
+            tzinfo = datetime.timezone(sign * offset)
+        else:
+            tzinfo = datetime.timezone.utc
         return datetime.datetime(year, month, day, hour, minute, second, tzinfo=tzinfo)
     except ValueError:
+        # Múi giờ lệch quá 24h (vd +25:00) hoặc ngày giờ không hợp lệ —
+        # coi như không parse được, caller tự thay bằng mặc định.
         return None
+
+
+def _escape_text(value: str) -> str:
+    # TEXT trong .ics theo RFC 5545: escape \, ; , và xuống dòng.
+    return (
+        value.replace("\\", "\\\\")
+        .replace(";", "\\;")
+        .replace(",", "\\,")
+        .replace("\r\n", "\\n")
+        .replace("\n", "\\n")
+    )
 
 
 def _fmt(dt: datetime.datetime) -> str:
@@ -65,11 +78,11 @@ def build_ics(
         f"DTSTAMP:{now}",
         f"DTSTART:{_fmt(start_dt)}",
         f"DTEND:{_fmt(end_dt)}",
-        f"SUMMARY:{title}",
+        f"SUMMARY:{_escape_text(title)}",
     ]
     if location:
-        lines.append(f"LOCATION:{location}")
+        lines.append(f"LOCATION:{_escape_text(location)}")
     if description:
-        lines.append(f"DESCRIPTION:{description}")
+        lines.append(f"DESCRIPTION:{_escape_text(description)}")
     lines += ["END:VEVENT", "END:VCALENDAR"]
     return "\r\n".join(lines) + "\r\n"

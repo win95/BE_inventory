@@ -1,5 +1,5 @@
-fastapi
-uvicorn[standard]
-pydantic
-pyjwt
-python-multipart  # BE 16: upload CV (multipart/form-data)
+fastapi==0.163.2
+uvicorn[standard]==0.54.0
+pydantic==2.14.3
+PyJWT==2.15.1
+python-multipart==0.0.34  # BE 16: upload CV (multipart/form-data)

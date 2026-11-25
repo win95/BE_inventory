@@ -1,6 +1,9 @@
 """Cấu hình backend từ biến môi trường (xem backend/.env.example)."""
 
+import logging
 import os
+
+logger = logging.getLogger("awing.backend.config")
 
 DATABASE_PATH = os.environ.get("DATABASE_PATH", "./awing.db")
 PORT = int(os.environ.get("PORT", "8000"))
@@ -11,12 +14,24 @@ FRONTEND_ORIGINS = [
     if origin.strip()
 ]
 
-PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/")
-
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 
-JWT_SECRET = os.environ.get("JWT_SECRET", "doi-secret-nay-khi-chay-that")
+# Secret ký JWT. Không có env thì FAIL NGAY lúc khởi động (không dùng secret
+# mặc định mà ai cũng đọc được trong repo). Giá trị mặc định trong
+# .env.example chỉ để chạy thử local — dùng nó thì backend vẫn chạy nhưng
+# ghi cảnh báo lớn ở log.
+_DEFAULT_JWT_SECRET = "doi-secret-nay-khi-chay-that"
+JWT_SECRET = os.environ.get("JWT_SECRET", "")
+if not JWT_SECRET:
+    raise RuntimeError(
+        "JWT_SECRET chưa cấu hình — đặt giá trị ngẫu nhiên trong .env (xem .env.example)."
+    )
+if JWT_SECRET == _DEFAULT_JWT_SECRET:
+    logger.warning(
+        "JWT_SECRET đang dùng giá trị mặc định trong .env.example — "
+        "đổi thành giá trị ngẫu nhiên trước khi chạy thật."
+    )
 JWT_EXPIRE_HOURS = 24
 
 STRAPI_WEBHOOK_SECRET = os.environ.get("STRAPI_WEBHOOK_SECRET", "")
@@ -41,10 +56,10 @@ GROWTH_ENABLED = os.environ.get("GROWTH_ENABLED", "true").lower() in (
     "true",
     "yes",
 )
-# Số lượt kết nối cộng thêm mỗi chu kỳ (mặc định +100.000/30s ≈ +200.000/phút —
-# đủ để ô 25.4M nhảy 0.1M mỗi chu kỳ ở định dạng 1 chữ số thập phân). Các số
+# Số lượt kết nối cộng thêm mỗi chu kỳ (mặc định +13/30s). Các số
 # khác (reach, engagements, impressions/ngày, monthly) tăng theo cùng tỉ lệ %
-# so với tổng hiện tại của chúng (xem app/growth.py).
+# so với tổng hiện tại của chúng (xem app/growth.py). (.env.example đặt
+# 100000 để demo nhảy số rõ — giá trị đó chỉ có khi đặt env.)
 GROWTH_CONNECTIONS_PER_CYCLE = int(
     os.environ.get("GROWTH_CONNECTIONS_PER_CYCLE", "13")
 )
@@ -66,8 +81,20 @@ OTP_RESEND_COOLDOWN_SECONDS = int(
 )
 # Token lead cấp sau khi xác thực OTP (dùng cho PATCH /api/leads/{id}).
 LEAD_TOKEN_EXPIRE_MINUTES = int(os.environ.get("LEAD_TOKEN_EXPIRE_MINUTES", "60"))
-# Rate limit tạo lead: số request / phút / IP (chống spam form).
+# Rate limit tạo lead: số request / phút / email (chống spam form).
+# Sau kiến trúc BFF mọi request đều qua proxy Next.js nên giới hạn theo IP
+# thành giới hạn chung toàn site — giới hạn theo email trong payload.
 LEAD_RATE_LIMIT_PER_MINUTE = int(os.environ.get("LEAD_RATE_LIMIT_PER_MINUTE", "5"))
+# Rate limit các POST công khai còn lại (theo email; suggest theo IP).
+CONTACT_RATE_LIMIT_PER_MINUTE = int(os.environ.get("CONTACT_RATE_LIMIT_PER_MINUTE", "5"))
+NEWSLETTER_RATE_LIMIT_PER_MINUTE = int(
+    os.environ.get("NEWSLETTER_RATE_LIMIT_PER_MINUTE", "5")
+)
+EVENT_REGISTER_RATE_LIMIT_PER_MINUTE = int(
+    os.environ.get("EVENT_REGISTER_RATE_LIMIT_PER_MINUTE", "5")
+)
+CV_APPLY_RATE_LIMIT_PER_MINUTE = int(os.environ.get("CV_APPLY_RATE_LIMIT_PER_MINUTE", "3"))
+SUGGEST_RATE_LIMIT_PER_MINUTE = int(os.environ.get("SUGGEST_RATE_LIMIT_PER_MINUTE", "30"))
 
 # BE 18-20 — tìm kiếm trên FastAPI (không Meilisearch, theo kiến trúc đã
 # chốt 23/11): URL Strapi để đọc nội dung công khai làm chỉ mục tìm kiếm.

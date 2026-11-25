@@ -363,6 +363,16 @@ def init_db() -> None:
     conn = connect()
     try:
         conn.executescript(SCHEMA)
+        # Index cho các cột hay tra cứu (dedupe/verify): không có index thì
+        # mỗi lần verify OTP, dedupe lead/event đều quét toàn bảng.
+        conn.executescript(
+            """
+            CREATE INDEX IF NOT EXISTS idx_leads_email ON leads (email);
+            CREATE INDEX IF NOT EXISTS idx_lead_otps_lead_id ON lead_otps (lead_id);
+            CREATE INDEX IF NOT EXISTS idx_event_registrations_slug_email
+                ON event_registrations (event_slug, email);
+            """
+        )
         _migrate(conn)
         conn.commit()
     finally:

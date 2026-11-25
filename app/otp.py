@@ -8,6 +8,7 @@ Gửi lại mã sẽ vô hiệu mã cũ chưa dùng.
 
 import datetime
 import hashlib
+import hmac
 import secrets
 
 from . import config
@@ -66,7 +67,7 @@ def verify_otp(conn, lead_id: int, code: str) -> tuple[str, int]:
         "UPDATE lead_otps SET attempts = ? WHERE id = ?", (attempts, row["id"])
     )
     conn.commit()
-    if hash_code(lead_id, code) == row["code_hash"]:
+    if hmac.compare_digest(hash_code(lead_id, code), row["code_hash"]):
         conn.execute("UPDATE lead_otps SET used = 1 WHERE id = ?", (row["id"],))
         conn.commit()
         return "ok", 0
